@@ -46,3 +46,37 @@ def test_fetch_propagates_http_errors():
     client = HAClient("http://homeassistant.local:8123", token="bad", client=stub)
     with pytest.raises(RuntimeError):
         client.fetch()
+
+
+class StubPost:
+    def __init__(self, status=200):
+        self._status = status
+        self.calls = []
+
+    def post(self, url, headers=None, json=None):
+        self.calls.append((url, headers, json))
+        return _Resp({"ok": True}, self._status)
+
+
+def test_call_service_posts_with_entity_and_params():
+    stub = StubPost()
+    client = HAClient("http://ha:8123", token="tok", client=stub)
+    client.call_service("climate", "set_temperature", "climate.living_room", {"temperature": 24})
+    url, headers, body = stub.calls[0]
+    assert url.endswith("/api/services/climate/set_temperature")
+    assert headers["Authorization"] == "Bearer tok"
+    assert body == {"entity_id": "climate.living_room", "temperature": 24}
+
+
+def test_call_service_no_params_sends_only_entity():
+    stub = StubPost()
+    HAClient("http://ha:8123", token="t", client=stub).call_service("light", "turn_on", "light.x")
+    _, _, body = stub.calls[0]
+    assert body == {"entity_id": "light.x"}
+
+
+def test_call_service_propagates_errors():
+    stub = StubPost(status=500)
+    client = HAClient("http://ha:8123", token="t", client=stub)
+    with pytest.raises(RuntimeError):
+        client.call_service("light", "turn_on", "light.x")

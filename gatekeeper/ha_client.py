@@ -21,3 +21,10 @@ class HAClient:
         resp = self.client.get(self.base_url + path, headers=headers)
         resp.raise_for_status()
         return resp.json()
+
+    def call_service(self, domain: str, service: str, entity_id: str, params: dict | None = None):
+        headers = {"Authorization": f"Bearer {self.token}"}
+        data = {"entity_id": entity_id, **(params or {})}
+        resp = self.client.post(f"{self.base_url}/api/services/{domain}/{service}", headers=headers, json=data)
+        resp.raise_for_status()
+        return resp.json()
