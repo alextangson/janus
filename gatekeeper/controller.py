@@ -10,10 +10,13 @@ class Outcome:
     decision: Decision
     executed: bool
     error: str | None = None
+    needs_confirmation: bool = False
+    prompt: str | None = None
 
 
 class Controller:
-    """编排:decide → 仅当 allow 时经 ha_client 执行。confirm/reject 不动 HA。"""
+    """编排:decide → allow 直接执行;confirm 给话术待确认;reject 不动。
+    无持久状态:pending 由调用方持有,确认后调 confirm()。执行只经 ha_client。"""
 
     def __init__(self, engine, ha_client):
         self.engine = engine
@@ -21,11 +24,25 @@ class Controller:
 
     def handle(self, instruction: str) -> Outcome:
         decision = self.engine.decide(instruction)
-        if decision.verdict != "allow":
-            return Outcome(decision=decision, executed=False)
+        if decision.verdict == "allow":
+            return self._execute(decision)
+        if decision.verdict == "confirm":
+            return Outcome(decision=decision, executed=False,
+                           needs_confirmation=True, prompt=self._prompt(decision))
+        return Outcome(decision=decision, executed=False)  # reject
+
+    def confirm(self, decision: Decision, approved: bool) -> Outcome:
+        if approved:
+            return self._execute(decision)
+        return Outcome(decision=decision, executed=False)  # 用户否决
+
+    def _execute(self, decision: Decision) -> Outcome:
         try:
             domain = (decision.device_id or "").split(".")[0]
             self.ha_client.call_service(domain, decision.operation, decision.device_id, dict(decision.params))
             return Outcome(decision=decision, executed=True)
         except Exception as exc:  # 执行失败如实记录,绝不谎报成功
             return Outcome(decision=decision, executed=False, error=str(exc))
+
+    def _prompt(self, decision: Decision) -> str:
+        return f"确认执行「{decision.operation} → {decision.device_id}」?{decision.reason}"

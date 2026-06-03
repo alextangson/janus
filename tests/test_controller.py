@@ -82,3 +82,55 @@ def test_end_to_end_allow_executes(registry):
     assert out.decision.verdict == "allow"
     assert out.executed is True
     assert ha.calls == [("light", "turn_on", "light.living_room", {})]
+
+
+def test_confirm_returns_prompt_and_needs_confirmation():
+    ha = StubHA()
+    d = _decision("confirm", stage="safety", device_id="lock.front_door",
+                  operation="unlock", reason="该操作敏感/不可逆,执行前需确认")
+    out = Controller(FakeEngine(d), ha).handle("开锁")
+    assert out.needs_confirmation is True
+    assert out.executed is False
+    assert out.prompt and "unlock" in out.prompt and "lock.front_door" in out.prompt
+    assert ha.calls == []
+
+
+def test_confirm_approved_executes():
+    ha = StubHA()
+    d = _decision("confirm", device_id="lock.front_door", operation="unlock", params={})
+    out = Controller(FakeEngine(d), ha).confirm(d, approved=True)
+    assert out.executed is True
+    assert ha.calls == [("lock", "unlock", "lock.front_door", {})]
+
+
+def test_confirm_declined_does_not_execute():
+    ha = StubHA()
+    d = _decision("confirm", device_id="lock.front_door", operation="unlock")
+    out = Controller(FakeEngine(d), ha).confirm(d, approved=False)
+    assert out.executed is False
+    assert ha.calls == []
+
+
+def test_confirm_approved_execution_error_is_captured():
+    ha = StubHA(raise_exc=RuntimeError("HA down"))
+    d = _decision("confirm", device_id="lock.front_door", operation="unlock")
+    out = Controller(FakeEngine(d), ha).confirm(d, approved=True)
+    assert out.executed is False
+    assert "HA down" in out.error
+
+
+def test_end_to_end_confirm_then_approve(registry):
+    from gatekeeper.engine import Engine
+    from gatekeeper.models import ParseResult
+    from tests._helpers import FakeParser
+
+    parse = ParseResult.model_validate(
+        {"recognized": True, "device_id": "lock.front_door", "operation": "unlock",
+         "params": {}, "confidence": 0.99})
+    ha = StubHA()
+    ctrl = Controller(Engine(FakeParser(parse), registry, tau=0.7), ha)
+    out = ctrl.handle("把大门打开")
+    assert out.needs_confirmation is True and out.executed is False and ha.calls == []
+    out2 = ctrl.confirm(out.decision, approved=True)
+    assert out2.executed is True
+    assert ha.calls == [("lock", "unlock", "lock.front_door", {})]
