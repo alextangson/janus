@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .models import Device
+from .ha_mapping import map_ha
 
 
 class Registry:
@@ -15,6 +16,10 @@ class Registry:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         devices = {device_id: Device.model_validate(spec) for device_id, spec in raw.items()}
         return cls(devices)
+
+    @classmethod
+    def from_ha(cls, states: list, services: list, overrides: dict | None = None) -> "Registry":
+        return cls(map_ha(states, services, overrides))
 
     def device_ids(self) -> list[str]:
         return list(self._devices.keys())

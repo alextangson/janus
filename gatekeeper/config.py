@@ -20,3 +20,8 @@ BACKEND = os.environ.get("GATEKEEPER_BACKEND", "claude")
 # Phase 1b 本地模型(Ollama,OpenAI 兼容);可用 GATEKEEPER_LOCAL_MODEL 覆盖
 LOCAL_MODEL = os.environ.get("GATEKEEPER_LOCAL_MODEL", "gemma4")
 LOCAL_BASE_URL = "http://localhost:11434/v1"
+
+# Phase 2 / P2.1 — Home Assistant 连接(可用环境变量覆盖)
+HA_BASE_URL = os.environ.get("GATEKEEPER_HA_URL", "http://homeassistant.local:8123")
+HA_TOKEN = os.environ.get("GATEKEEPER_HA_TOKEN", "")
+HA_OVERRIDES_PATH = DATA / "ha_overrides.json"
