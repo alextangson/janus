@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 
 class ParamSpec(BaseModel):
@@ -30,7 +30,7 @@ class ParseResult(BaseModel):
     recognized: bool
     device_id: str | None = None
     operation: str | None = None
-    params: dict[str, int | str] = Field(default_factory=dict)
+    params: dict[str, bool | int | str] = Field(default_factory=dict)
     confidence: float = 0.0
     notes: str = ""
 
@@ -44,6 +44,6 @@ class Decision(BaseModel):
     stage: Stage
     device_id: str | None = None
     operation: str | None = None
-    params: dict[str, int | str] = Field(default_factory=dict)
+    params: dict[str, bool | int | str] = Field(default_factory=dict)
     confidence: float = 0.0
     reason: str = ""
