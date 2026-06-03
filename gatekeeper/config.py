@@ -17,5 +17,5 @@ MODEL = "claude-sonnet-4-6"
 BACKEND = "claude"
 
 # Phase 1b 本地模型(Ollama,OpenAI 兼容)
-LOCAL_MODEL = "qwen2.5:7b"
+LOCAL_MODEL = "gemma4"
 LOCAL_BASE_URL = "http://localhost:11434/v1"

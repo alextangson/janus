@@ -69,8 +69,17 @@ def load_testset(path: str | Path) -> list[dict]:
 
 
 def main() -> None:
+    from gatekeeper.config import BACKEND, LOCAL_BASE_URL, LOCAL_MODEL
+
     registry = Registry.from_file(DEVICES_PATH)
-    parser = ClaudeParser(registry, model=MODEL)
+    if BACKEND == "local":
+        from gatekeeper.local_parser import LocalParser
+
+        parser = LocalParser(registry, model=LOCAL_MODEL, base_url=LOCAL_BASE_URL)
+        print(f"(backend=local, model={LOCAL_MODEL})")
+    else:
+        parser = ClaudeParser(registry, model=MODEL)
+        print(f"(backend=claude, model={MODEL})")
     engine = Engine(parser, registry, tau=TAU)
 
     results: list[CaseResult] = []
