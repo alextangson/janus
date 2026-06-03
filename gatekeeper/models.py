@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class ParamSpec(BaseModel):
+    type: Literal["int", "enum"]
+    min: int | None = None
+    max: int | None = None
+    enum: list[str] | None = None
+    unit: str | None = None
+    required: bool = False
+
+
+class OperationSpec(BaseModel):
+    params: dict[str, ParamSpec] = Field(default_factory=dict)
+    dangerous: bool = False
+
+
+class Device(BaseModel):
+    name: str
+    type: str
+    area: str
+    operations: dict[str, OperationSpec] = Field(default_factory=dict)
+
+
+class ParseResult(BaseModel):
+    recognized: bool
+    device_id: str | None = None
+    operation: str | None = None
+    params: dict[str, int | str] = Field(default_factory=dict)
+    confidence: float = 0.0
+    notes: str = ""
+
+
+Verdict = Literal["allow", "confirm", "reject"]
+Stage = Literal["parse", "feasibility", "confidence", "safety", "passed", "error"]
+
+
+class Decision(BaseModel):
+    verdict: Verdict
+    stage: Stage
+    device_id: str | None = None
+    operation: str | None = None
+    params: dict[str, int | str] = Field(default_factory=dict)
+    confidence: float = 0.0
+    reason: str = ""
