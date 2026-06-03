@@ -1,0 +1,10 @@
+[
+  {"domain": "light", "services": {"turn_on": {}, "turn_off": {}}},
+  {"domain": "switch", "services": {"turn_on": {}, "turn_off": {}}},
+  {"domain": "climate", "services": {"set_temperature": {}, "set_hvac_mode": {}, "turn_on": {}, "turn_off": {}}},
+  {"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}},
+  {"domain": "lock", "services": {"lock": {}, "unlock": {}}},
+  {"domain": "alarm_control_panel", "services": {"alarm_arm_home": {}, "alarm_arm_away": {}, "alarm_disarm": {}}},
+  {"domain": "fan", "services": {"turn_on": {}, "turn_off": {}, "set_percentage": {}}},
+  {"domain": "valve", "services": {"open_valve": {}, "close_valve": {}, "set_valve_position": {}}}
+]
