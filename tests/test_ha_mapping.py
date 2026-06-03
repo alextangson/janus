@@ -67,3 +67,40 @@ def test_malformed_entity_is_skipped_not_fatal():
     devices = map_ha(states, _services())
     assert "lock.front_door" in devices  # good entities still mapped
     assert len(devices) == 9             # 9 supported domains in the clean fixture; junk skipped
+
+
+def test_danger_defaults_per_operation():
+    d = map_ha(_states(), _services())
+    assert d["lock.front_door"].operations["unlock"].dangerous is True
+    assert d["lock.front_door"].operations["lock"].dangerous is False
+    assert d["alarm_control_panel.home"].operations["alarm_disarm"].dangerous is True
+    assert d["alarm_control_panel.home"].operations["alarm_arm_away"].dangerous is False
+    assert d["valve.gas_main"].operations["open_valve"].dangerous is True
+    assert d["switch.kitchen_socket"].operations["turn_on"].dangerous is False
+
+
+def test_cover_danger_depends_on_device_class():
+    d = map_ha(_states(), _services())
+    # garage cover: opening is dangerous
+    assert d["cover.garage_door"].operations["open_cover"].dangerous is True
+    assert d["cover.garage_door"].operations["set_cover_position"].dangerous is True
+    # curtain cover: safe
+    assert d["cover.living_room_curtain"].operations["open_cover"].dangerous is False
+
+
+def test_overrides_tighten_and_relax():
+    overrides = {
+        "switch.kitchen_socket": {"turn_on": True},   # tighten a safe op
+        "lock.front_door": {"unlock": False},          # relax a dangerous op
+    }
+    d = map_ha(_states(), _services(), overrides)
+    assert d["switch.kitchen_socket"].operations["turn_on"].dangerous is True
+    assert d["lock.front_door"].operations["unlock"].dangerous is False
+
+
+def test_load_overrides_missing_file_returns_empty(tmp_path):
+    from gatekeeper.ha_mapping import load_overrides
+    assert load_overrides(tmp_path / "nope.json") == {}
+    f = tmp_path / "ov.json"
+    f.write_text('{"lock.front_door": {"unlock": false}}', encoding="utf-8")
+    assert load_overrides(f) == {"lock.front_door": {"unlock": False}}
