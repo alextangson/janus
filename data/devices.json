@@ -1,0 +1,62 @@
+{
+  "light.living_room": {
+    "name": "客厅灯", "type": "light", "area": "客厅",
+    "operations": {
+      "turn_on": { "params": { "brightness_pct": { "type": "int", "min": 0, "max": 100, "required": false } }, "dangerous": false },
+      "turn_off": { "params": {}, "dangerous": false }
+    }
+  },
+  "light.bedroom": {
+    "name": "卧室灯", "type": "light", "area": "卧室",
+    "operations": {
+      "turn_on": { "params": { "brightness_pct": { "type": "int", "min": 0, "max": 100, "required": false } }, "dangerous": false },
+      "turn_off": { "params": {}, "dangerous": false }
+    }
+  },
+  "climate.living_room": {
+    "name": "客厅空调", "type": "climate", "area": "客厅",
+    "operations": {
+      "set_temperature": { "params": { "temperature": { "type": "int", "min": 16, "max": 30, "unit": "°C", "required": true } }, "dangerous": false },
+      "set_mode": { "params": { "mode": { "type": "enum", "enum": ["cool", "heat", "fan", "auto"], "required": true } }, "dangerous": false },
+      "turn_on": { "params": {}, "dangerous": false },
+      "turn_off": { "params": {}, "dangerous": false }
+    }
+  },
+  "switch.kitchen_socket": {
+    "name": "厨房插座", "type": "switch", "area": "厨房",
+    "operations": {
+      "turn_on": { "params": {}, "dangerous": false },
+      "turn_off": { "params": {}, "dangerous": false }
+    }
+  },
+  "cover.living_room_curtain": {
+    "name": "客厅窗帘", "type": "cover", "area": "客厅",
+    "operations": {
+      "open_cover": { "params": {}, "dangerous": false },
+      "close_cover": { "params": {}, "dangerous": false },
+      "set_position": { "params": { "position": { "type": "int", "min": 0, "max": 100, "required": true } }, "dangerous": false }
+    }
+  },
+  "lock.front_door": {
+    "name": "大门门锁", "type": "lock", "area": "门厅",
+    "operations": {
+      "lock": { "params": {}, "dangerous": false },
+      "unlock": { "params": {}, "dangerous": true }
+    }
+  },
+  "alarm_control_panel.home": {
+    "name": "家庭安防", "type": "alarm_control_panel", "area": "全屋",
+    "operations": {
+      "arm_away": { "params": {}, "dangerous": false },
+      "arm_home": { "params": {}, "dangerous": false },
+      "disarm": { "params": {}, "dangerous": true }
+    }
+  },
+  "switch.gas_valve": {
+    "name": "燃气阀门", "type": "switch", "area": "厨房",
+    "operations": {
+      "turn_off": { "params": {}, "dangerous": true },
+      "turn_on": { "params": {}, "dangerous": true }
+    }
+  }
+}
