@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from .models import Device, OperationSpec, ParamSpec
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_DOMAINS = {
     "light", "switch", "climate", "cover", "lock",
@@ -37,7 +40,7 @@ def _candidate_operations(domain: str, attrs: dict) -> dict[str, dict[str, Param
         return {"open_cover": {}, "close_cover": {},
                 "set_cover_position": {"position": ParamSpec(type="int", min=0, max=100, required=True)}}
     if domain == "lock":
-        return {"lock": {}, "unlock": {}}
+        return {"lock": {}, "unlock": {}, "open": {}}
     if domain == "alarm_control_panel":
         return {"alarm_arm_home": {}, "alarm_arm_away": {}, "alarm_disarm": {}}
     if domain == "fan":
@@ -93,8 +96,10 @@ def map_ha(states: list, services: list, overrides: dict | None = None) -> dict[
                 name=attrs.get("friendly_name", entity_id),
                 type=domain, area="", operations=operations,
             )
-        except Exception:
-            # 单个实体畸形 → 跳过,不影响其余(生产中应记 warning)
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            # 数据畸形(含 pydantic 校验错)→ 跳过 + 记 warning;代码级错误(如 NameError)仍会抛出暴露
+            entity = st.get("entity_id", st) if isinstance(st, dict) else st
+            logger.warning("跳过畸形 HA 实体 %r: %s", entity, exc)
             continue
 
     return devices

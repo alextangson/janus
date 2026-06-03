@@ -104,3 +104,25 @@ def test_load_overrides_missing_file_returns_empty(tmp_path):
     f = tmp_path / "ov.json"
     f.write_text('{"lock.front_door": {"unlock": false}}', encoding="utf-8")
     assert load_overrides(f) == {"lock.front_door": {"unlock": False}}
+
+
+def test_lock_open_unlatch_is_dangerous_when_available():
+    states = [{"entity_id": "lock.front_door", "state": "locked", "attributes": {"friendly_name": "大门门锁"}}]
+    services = [{"domain": "lock", "services": {"lock": {}, "unlock": {}, "open": {}}}]
+    d = map_ha(states, services)["lock.front_door"]
+    assert "open" in d.operations
+    assert d.operations["open"].dangerous is True
+
+
+def test_lock_without_open_service_has_no_open_op():
+    # the standard fixture lock exposes only lock/unlock -> no 'open' op leaks in
+    d = map_ha(_states(), _services())["lock.front_door"]
+    assert set(d.operations) == {"lock", "unlock"}
+
+
+def test_cover_without_device_class_defaults_safe():
+    states = [{"entity_id": "cover.unknown", "state": "open", "attributes": {"friendly_name": "未知卷帘"}}]
+    services = [{"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}}]
+    d = map_ha(states, services)["cover.unknown"]
+    assert d.operations["open_cover"].dangerous is False
+    assert d.operations["set_cover_position"].dangerous is False
