@@ -31,6 +31,7 @@ class ClaudeParser:
                 return self.client.messages.create(
                     model=self.model,
                     max_tokens=512,
+                    temperature=0,  # 安全关卡必须确定性解码,不能靠采样赌
                     system=SYSTEM_PROMPT,
                     tools=[anthropic_tool()],
                     tool_choice={"type": "tool", "name": TOOL_NAME},

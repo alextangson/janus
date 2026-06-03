@@ -21,6 +21,7 @@ class LocalParser:
     def parse(self, instruction: str) -> ParseResult:
         resp = self.client.chat.completions.create(
             model=self.model,
+            temperature=0,  # 安全关卡必须确定性解码,不能靠采样赌
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_user_prompt(self.registry, instruction)},

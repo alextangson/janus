@@ -79,6 +79,7 @@ def test_local_parser_extracts_parseresult(registry):
     assert pr.confidence == 0.6
     # forced tool choice is passed through
     assert parser.client.chat.completions.last_kwargs["tool_choice"]["function"]["name"] == "emit_parse"
+    assert parser.client.chat.completions.last_kwargs["temperature"] == 0  # 安全关卡:确定性解码
 
 
 def test_local_parser_raises_when_no_tool_call(registry):

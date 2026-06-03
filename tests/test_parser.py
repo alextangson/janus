@@ -71,6 +71,7 @@ def test_parser_extracts_parseresult_from_tool_use(registry):
     assert pr.params["temperature"] == 50
     # 强制工具调用的参数确实传给了 client
     assert parser.client.messages.last_kwargs["tool_choice"]["name"] == "emit_parse"
+    assert parser.client.messages.last_kwargs["temperature"] == 0  # 安全关卡:确定性解码
 
 
 def test_parser_raises_when_no_tool_use(registry):
