@@ -1,7 +1,11 @@
+import math
+
+import pytest
+
 from gatekeeper.engine import Engine
 from gatekeeper.models import ParseResult
 
-from tests._helpers import FakeParser, RaisingParser
+from tests._helpers import FakeParser, RaisingParser, ValidatingParser
 
 
 def _engine(registry, result, tau=0.7):
@@ -72,3 +76,20 @@ def test_parser_error_fails_closed(registry):
     d = eng.decide("开客厅灯")
     assert d.verdict != "allow"
     assert d.stage == "error"
+
+
+@pytest.mark.parametrize("bad_conf", [math.nan, math.inf, 1.5])
+def test_invalid_confidence_payload_fails_closed(registry, bad_conf):
+    payload = {"recognized": True, "device_id": "light.living_room",
+               "operation": "turn_on", "confidence": bad_conf}
+    eng = Engine(ValidatingParser(payload), registry, tau=0.7)
+    d = eng.decide("开客厅灯")
+    assert d.verdict != "allow"
+    assert d.stage == "error"
+
+
+def test_recognized_but_missing_device_or_operation_fails_closed(registry):
+    eng_no_device = _engine(registry, _pr(device_id=None, operation="turn_on"))
+    assert eng_no_device.decide("x").verdict != "allow"
+    eng_no_op = _engine(registry, _pr(device_id="light.living_room", operation=None))
+    assert eng_no_op.decide("x").verdict != "allow"

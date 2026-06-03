@@ -31,7 +31,7 @@ class ParseResult(BaseModel):
     device_id: str | None = None
     operation: str | None = None
     params: dict[str, bool | int | str] = Field(default_factory=dict)
-    confidence: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     notes: str = ""
 
 

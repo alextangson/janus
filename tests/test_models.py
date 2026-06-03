@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from pydantic import ValidationError
 
@@ -50,3 +52,12 @@ def test_decision_requires_verdict_and_stage():
     assert d.params == {}
     with pytest.raises(ValidationError):
         Decision(verdict="maybe", stage="passed")  # not a valid Verdict
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, -0.1, 1.5])
+def test_parseresult_rejects_invalid_confidence(bad):
+    with pytest.raises(ValidationError):
+        ParseResult.model_validate(
+            {"recognized": True, "device_id": "light.living_room",
+             "operation": "turn_on", "confidence": bad}
+        )

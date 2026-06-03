@@ -27,10 +27,10 @@ def check_feasibility(parse: ParseResult, registry: Registry) -> str | None:
         if pspec.type == "int":
             if isinstance(value, bool) or not isinstance(value, int):
                 return f"参数 {pname} 类型应为整数"
+            unit = pspec.unit or ""
             if pspec.min is not None and value < pspec.min:
-                return f"{pname} {value} 低于下限 {pspec.min}"
+                return f"{pname} {value}{unit} 低于下限({pspec.min}–{pspec.max}{unit})"
             if pspec.max is not None and value > pspec.max:
-                unit = pspec.unit or ""
                 return f"{pname} {value}{unit} 超出范围({pspec.min}–{pspec.max}{unit})"
         elif pspec.type == "enum":
             if value not in (pspec.enum or []):
