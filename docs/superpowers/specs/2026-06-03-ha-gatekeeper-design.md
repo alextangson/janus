@@ -354,3 +354,16 @@ smarthome/
 - **危险性靠静态元数据**:其好坏取决于 `devices.json` 标注质量;上下文相关的动态危险(如"半夜开窗")不在第一版范围。
 - **操作不支持类用例的 gold 标注**:模型可能返回"识别不出",也可能映射到设备+不支持的操作再被 validator 拦下;两条路都得 reject,但解析标注以哪种为准在编写测试集时定稿(默认标 `"unrecognized"`)。
 - **过拟合小测试集**:已用留出集 + 加兄弟用例 + "必要非充分"三条纪律缓解。
+
+---
+
+## 12. 实现与验证记录(as-built,2026-06-03)
+
+实现相对本设计的几处偏差(均由代码审查驱动,已并入代码):
+
+- **`ParseResult.confidence` 限定为 [0,1] 且拒绝 NaN/inf**(pydantic `Field(ge=0, le=1, allow_inf_nan=False)`)。原因:`NaN < τ` 为 `False`,无界 confidence 会让"没把握"漏成放行——fail-closed 的硬漏洞,已堵。
+- **`params` 类型改为 `bool | int | str`(bool 在前)**:否则 pydantic 把 `True` 静默转成 `1`,绕过 validator 的"整数参数"检查。
+- **解析契约澄清**:设备认得、但没有对应操作(如"插座设温度")也令 `recognized=false`。这定稿了 §11 中"操作不支持类 gold 标注"的开放问题——统一走 recognized=false(测试集以 `"unrecognized"` 标注)。
+- **parser 对 API 调用重试**(最多 2 次,仅包住网络调用;解析/校验失败不重试,交给 engine fail-closed),对应 §9.2。
+
+**Phase 1a 验证结果**:`claude-sonnet-4-6`,τ=0.7(未调整即达标)。调参集 24/24、留出集 6/6、安全违规 0;分类 normal 10/10、dangerous 9/9、invalid 11/11。正确解析置信度区间 0.85–0.99,τ 关从未触发(强模型预期内;置信度方法的真正考验在 Phase 1b 本地小模型)。**方法设计成立(排除方法错误)。** §10 的 Phase 1a 成功标准已达成。

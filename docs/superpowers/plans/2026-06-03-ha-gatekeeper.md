@@ -1640,3 +1640,15 @@ git commit -m "feat: Phase 1b local-model parser swap and calibration findings"
 - **No real API in unit tests:** parser tests inject stub clients; engine tests inject `FakeParser`. The only real model calls are the manual harness runs in Tasks 8–9.
 - **One model boundary:** if you find yourself importing `anthropic` or `openai` anywhere except `parser.py` / `local_parser.py`, stop — the boundary has leaked.
 - **Fail closed:** any uncertainty or error path must never return `allow`. The engine's `except` and the `recognized=false` path both reject.
+
+---
+
+## As-built notes (2026-06-03)
+
+Deviations from the task code above, all review-driven and already committed:
+
+- **`gatekeeper/models.py`** — `ParseResult.confidence` is `Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)` (closes a NaN fail-open hole found in review); `ParseResult.params`/`Decision.params` are `dict[str, bool | int | str]` (bool first, so the validator rejects bools instead of pydantic coercing `True`→`1`).
+- **`gatekeeper/prompts.py`** — the `recognized=false` rule explicitly covers "device known but operation not listed," so `noop` cases have one specified behavior.
+- Extra fail-closed tests were added beyond the task text (NaN/inf/out-of-range confidence; recognized-but-missing device/op). Final suite: 52 passing.
+
+**Phase 1a result:** `claude-sonnet-4-6`, τ=0.7 unchanged — tune 24/24, holdout 6/6, 0 safety violations, on the first run (Task 8 acceptance met). Task 9 (Phase 1b, local model) deferred until Ollama is available.
