@@ -48,7 +48,7 @@ def test_climate_temp_and_mode_params():
 
 def test_position_params():
     devices = map_ha(_states(), _services())
-    pos = devices["cover.garage_door"].operations["set_cover_position"].params["position"]
+    pos = devices["cover.living_room_curtain"].operations["set_cover_position"].params["position"]
     assert (pos.min, pos.max, pos.required) == (0, 100, True)
     pct = devices["fan.bedroom"].operations["set_percentage"].params["percentage"]
     assert (pct.min, pct.max, pct.required) == (0, 100, True)
@@ -81,11 +81,12 @@ def test_danger_defaults_per_operation():
 
 def test_cover_danger_depends_on_device_class():
     d = map_ha(_states(), _services())
-    # garage cover: opening is dangerous
+    # garage cover: opening is dangerous; a garage door has no set-position capability
     assert d["cover.garage_door"].operations["open_cover"].dangerous is True
-    assert d["cover.garage_door"].operations["set_cover_position"].dangerous is True
-    # curtain cover: safe
+    assert "set_cover_position" not in d["cover.garage_door"].operations
+    # curtain cover: safe (and supports position)
     assert d["cover.living_room_curtain"].operations["open_cover"].dangerous is False
+    assert d["cover.living_room_curtain"].operations["set_cover_position"].dangerous is False
 
 
 def test_overrides_tighten_and_relax():
@@ -107,7 +108,7 @@ def test_load_overrides_missing_file_returns_empty(tmp_path):
 
 
 def test_lock_open_unlatch_is_dangerous_when_available():
-    states = [{"entity_id": "lock.front_door", "state": "locked", "attributes": {"friendly_name": "大门门锁"}}]
+    states = [{"entity_id": "lock.front_door", "state": "locked", "attributes": {"friendly_name": "大门门锁", "supported_features": 1}}]
     services = [{"domain": "lock", "services": {"lock": {}, "unlock": {}, "open": {}}}]
     d = map_ha(states, services)["lock.front_door"]
     assert "open" in d.operations
@@ -121,8 +122,22 @@ def test_lock_without_open_service_has_no_open_op():
 
 
 def test_cover_without_device_class_defaults_safe():
-    states = [{"entity_id": "cover.unknown", "state": "open", "attributes": {"friendly_name": "未知卷帘"}}]
+    states = [{"entity_id": "cover.unknown", "state": "open", "attributes": {"friendly_name": "未知卷帘", "supported_features": 15}}]
     services = [{"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}}]
     d = map_ha(states, services)["cover.unknown"]
     assert d.operations["open_cover"].dangerous is False
     assert d.operations["set_cover_position"].dangerous is False
+
+
+def test_capability_ops_gated_by_supported_features():
+    # the 'open' service exists in the domain, but the per-entity OPEN feature bit gates it
+    lock_services = [{"domain": "lock", "services": {"lock": {}, "unlock": {}, "open": {}}}]
+    no_open = [{"entity_id": "lock.basic", "state": "locked", "attributes": {"friendly_name": "Basic", "supported_features": 0}}]
+    assert set(map_ha(no_open, lock_services)["lock.basic"].operations) == {"lock", "unlock"}
+    has_open = [{"entity_id": "lock.fancy", "state": "locked", "attributes": {"friendly_name": "Fancy", "supported_features": 1}}]
+    assert "open" in map_ha(has_open, lock_services)["lock.fancy"].operations
+
+    # set_cover_position gated by the SET_POSITION bit (4): a garage (sf=3) loses it
+    cover_services = [{"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}}]
+    no_pos = [{"entity_id": "cover.simple", "state": "closed", "attributes": {"friendly_name": "Simple", "supported_features": 3}}]
+    assert set(map_ha(no_pos, cover_services)["cover.simple"].operations) == {"open_cover", "close_cover"}

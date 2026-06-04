@@ -18,6 +18,24 @@ def _int(value) -> int | None:
     return int(round(value)) if value is not None else None
 
 
+# HA EntityFeature 位(经真机核对):仅当实体 supported_features 含对应位时,才提供这些"能力型"操作;
+# 否则 HA 会拒绝调用(500)。非能力型操作(开关/锁/arm 等)不在此表,一律视为支持。
+_FEATURE_BIT = {
+    "set_temperature": 1,      # ClimateEntityFeature.TARGET_TEMPERATURE
+    "set_cover_position": 4,   # CoverEntityFeature.SET_POSITION
+    "open": 1,                 # LockEntityFeature.OPEN(开闩)
+    "set_percentage": 1,       # FanEntityFeature.SET_SPEED
+    "set_valve_position": 4,   # ValveEntityFeature.SET_POSITION
+}
+
+
+def _supports(attrs: dict, op: str) -> bool:
+    bit = _FEATURE_BIT.get(op)
+    if bit is None:
+        return True
+    return bool((attrs.get("supported_features") or 0) & bit)
+
+
 def _candidate_operations(domain: str, attrs: dict) -> dict[str, dict[str, ParamSpec]]:
     """域 → {operation: {param: ParamSpec}}。参数范围取自实体属性。"""
     if domain == "light":
@@ -84,6 +102,8 @@ def map_ha(states: list, services: list, overrides: dict | None = None) -> dict[
             operations: dict[str, OperationSpec] = {}
             for op_name, params in _candidate_operations(domain, attrs).items():
                 if op_name not in available:
+                    continue
+                if not _supports(attrs, op_name):  # 按 supported_features 过滤能力型操作
                     continue
                 dangerous = _default_dangerous(domain, device_class, op_name)
                 if op_name in ent_overrides:
