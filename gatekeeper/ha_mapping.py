@@ -102,7 +102,7 @@ def _default_dangerous(domain: str, device_class: str | None, op: str) -> bool:
     return False
 
 
-def _enrich(snapshot, entity_id) -> tuple[str | None, str | None, str]:
+def _enrich(snapshot: RegistrySnapshot | None, entity_id: str) -> tuple[str | None, str | None, str]:
     """→ (entity_category, device_id, area_name)。无快照/无注册表项 → 默认值。"""
     if snapshot is None:
         return None, None, ""
