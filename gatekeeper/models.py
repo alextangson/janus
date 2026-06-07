@@ -23,6 +23,8 @@ class Device(BaseModel):
     name: str
     type: str
     area: str
+    entity_category: str | None = None
+    device_id: str | None = None
     operations: dict[str, OperationSpec] = Field(default_factory=dict)
 
 

@@ -61,3 +61,18 @@ def test_parseresult_rejects_invalid_confidence(bad):
             {"recognized": True, "device_id": "light.living_room",
              "operation": "turn_on", "confidence": bad}
         )
+
+
+def test_device_metadata_fields_default_none():
+    from gatekeeper.models import Device
+    d = Device(name="x", type="light", area="")
+    assert d.entity_category is None
+    assert d.device_id is None
+
+
+def test_device_metadata_fields_set():
+    from gatekeeper.models import Device
+    d = Device(name="x", type="light", area="Living Room",
+               entity_category="config", device_id="abc123")
+    assert d.entity_category == "config"
+    assert d.device_id == "abc123"
