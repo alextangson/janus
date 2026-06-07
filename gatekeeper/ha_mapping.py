@@ -102,7 +102,25 @@ def _default_dangerous(domain: str, device_class: str | None, op: str) -> bool:
     return False
 
 
-def map_ha(states: list, services: list, overrides: dict | None = None) -> dict[str, Device]:
+def _enrich(snapshot, entity_id) -> tuple[str | None, str | None, str]:
+    """→ (entity_category, device_id, area_name)。无快照/无注册表项 → 默认值。"""
+    if snapshot is None:
+        return None, None, ""
+    ent = snapshot.by_entity.get(entity_id)
+    if not ent:
+        return None, None, ""
+    device_id = ent.get("device_id")
+    area_id = ent.get("area_id")
+    if not area_id and device_id:
+        dev = snapshot.by_device.get(device_id)
+        if dev:
+            area_id = dev.get("area_id")
+    area = snapshot.by_area.get(area_id, "") if area_id else ""
+    return ent.get("entity_category"), device_id, area
+
+
+def map_ha(states: list, services: list, overrides: dict | None = None,
+           snapshot: "RegistrySnapshot | None" = None) -> dict[str, Device]:
     """纯函数:HA states+services → {entity_id: Device}。畸形实体跳过不崩。"""
     overrides = overrides or {}
     services_by_domain = {e["domain"]: set((e.get("services") or {}).keys()) for e in services}
@@ -132,9 +150,12 @@ def map_ha(states: list, services: list, overrides: dict | None = None) -> dict[
 
             if not operations:
                 continue
+            entity_category, device_id, area = _enrich(snapshot, entity_id)
             devices[entity_id] = Device(
                 name=attrs.get("friendly_name", entity_id),
-                type=domain, area="", operations=operations,
+                type=domain, area=area,
+                entity_category=entity_category, device_id=device_id,
+                operations=operations,
             )
         except (KeyError, TypeError, AttributeError, ValueError) as exc:
             # 数据畸形(含 pydantic 校验错)→ 跳过 + 记 warning;代码级错误(如 NameError)仍会抛出暴露

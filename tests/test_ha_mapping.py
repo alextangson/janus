@@ -153,6 +153,45 @@ def test_build_snapshot_indexes_by_id():
     assert snap.by_area["a1"] == "客厅"
 
 
+def _snap(**entity_fields):
+    base = {"entity_id": "light.living_room"}
+    base.update(entity_fields)
+    return build_registry_snapshot(
+        [base],
+        [{"id": "dev1", "area_id": "area_dev"}],
+        [{"area_id": "area_ent", "name": "卧室"}, {"area_id": "area_dev", "name": "客厅"}],
+    )
+
+
+def test_enrich_attaches_category_and_device_id():
+    snap = _snap(device_id="dev1", entity_category="config", area_id="area_ent")
+    d = map_ha(_states(), _services(), snapshot=snap)["light.living_room"]
+    assert d.entity_category == "config"
+    assert d.device_id == "dev1"
+    assert d.area == "卧室"  # entity area_id wins
+
+
+def test_enrich_area_falls_back_to_device():
+    snap = _snap(device_id="dev1", entity_category=None, area_id=None)
+    d = map_ha(_states(), _services(), snapshot=snap)["light.living_room"]
+    assert d.area == "客厅"  # device area_id used when entity has none
+
+
+def test_enrich_no_registry_entry_leaves_defaults():
+    snap = build_registry_snapshot([], [], [])
+    d = map_ha(_states(), _services(), snapshot=snap)["light.living_room"]
+    assert d.entity_category is None
+    assert d.device_id is None
+    assert d.area == ""
+
+
+def test_no_snapshot_keeps_today_behavior():
+    d = map_ha(_states(), _services())["light.living_room"]
+    assert d.entity_category is None
+    assert d.device_id is None
+    assert d.area == ""
+
+
 def test_build_snapshot_skips_malformed():
     snap = build_registry_snapshot(
         [{"no_entity_id": 1}, "garbage", {"entity_id": "light.ok"}],
