@@ -2,11 +2,31 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import Device, OperationSpec, ParamSpec
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RegistrySnapshot:
+    by_entity: dict[str, dict]
+    by_device: dict[str, dict]
+    by_area: dict[str, str]
+
+
+def build_registry_snapshot(entities: list, devices: list, areas: list) -> RegistrySnapshot:
+    """纯函数:三张 HA 注册表原始列表 → 带查找字典的快照。畸形项跳过。"""
+    by_entity = {e["entity_id"]: e for e in entities
+                 if isinstance(e, dict) and e.get("entity_id")}
+    by_device = {d["id"]: d for d in devices
+                 if isinstance(d, dict) and d.get("id")}
+    by_area = {a["area_id"]: a.get("name", "") for a in areas
+               if isinstance(a, dict) and a.get("area_id")}
+    return RegistrySnapshot(by_entity, by_device, by_area)
+
 
 SUPPORTED_DOMAINS = {
     "light", "switch", "climate", "cover", "lock",

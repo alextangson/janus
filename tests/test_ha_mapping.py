@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from gatekeeper.ha_mapping import map_ha
+from gatekeeper.ha_mapping import build_registry_snapshot, map_ha
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 
@@ -141,3 +141,24 @@ def test_capability_ops_gated_by_supported_features():
     cover_services = [{"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}}]
     no_pos = [{"entity_id": "cover.simple", "state": "closed", "attributes": {"friendly_name": "Simple", "supported_features": 3}}]
     assert set(map_ha(no_pos, cover_services)["cover.simple"].operations) == {"open_cover", "close_cover"}
+
+
+def test_build_snapshot_indexes_by_id():
+    entities = [{"entity_id": "light.x", "device_id": "d1", "area_id": None, "entity_category": None}]
+    devices = [{"id": "d1", "area_id": "a1"}]
+    areas = [{"area_id": "a1", "name": "客厅"}]
+    snap = build_registry_snapshot(entities, devices, areas)
+    assert snap.by_entity["light.x"]["device_id"] == "d1"
+    assert snap.by_device["d1"]["area_id"] == "a1"
+    assert snap.by_area["a1"] == "客厅"
+
+
+def test_build_snapshot_skips_malformed():
+    snap = build_registry_snapshot(
+        [{"no_entity_id": 1}, "garbage", {"entity_id": "light.ok"}],
+        ["bad", {"id": "d1"}],
+        [{"name": "no id"}, {"area_id": "a1", "name": "A"}],
+    )
+    assert list(snap.by_entity) == ["light.ok"]
+    assert list(snap.by_device) == ["d1"]
+    assert snap.by_area == {"a1": "A"}
