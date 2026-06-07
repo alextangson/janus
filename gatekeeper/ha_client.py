@@ -4,10 +4,10 @@ import json
 import httpx
 
 
-def _default_ws_connect(url: str):
+def _default_ws_connect(url: str, timeout: float = 10.0):
     import websocket  # websocket-client, lazy import: only needed for real connections
 
-    return websocket.create_connection(url)
+    return websocket.create_connection(url, timeout=timeout)
 
 
 class HAClient:
@@ -16,6 +16,7 @@ class HAClient:
     def __init__(self, base_url: str, token: str, client=None, timeout: float = 10.0):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.timeout = timeout
         self.client = client if client is not None else httpx.Client(timeout=timeout)
 
     def fetch(self) -> tuple[list, list]:
@@ -38,7 +39,7 @@ class HAClient:
 
     def fetch_registries(self, ws_connect=None) -> tuple[list, list, list]:
         """一次性 WS 拉三张注册表:(entities, devices, areas)。"""
-        ws_connect = ws_connect or _default_ws_connect
+        ws_connect = ws_connect or (lambda url: _default_ws_connect(url, self.timeout))
         conn = ws_connect(self._ws_url())
         try:
             self._ws_auth(conn)
@@ -71,4 +72,4 @@ class HAClient:
                 continue  # 跳过无关事件
             if not msg.get("success", False):
                 raise RuntimeError(f"WS 命令 {cmd_type} 失败: {msg.get('error')}")
-            return msg["result"]
+            return msg.get("result") or []

@@ -15,6 +15,8 @@ from gatekeeper.ha_mapping import build_registry_snapshot, map_ha
 
 def _load_env() -> None:
     env = Path(__file__).resolve().parent.parent / ".env"
+    if not env.exists():
+        raise SystemExit("缺少 .env:请设置 GATEKEEPER_HA_URL 和 GATEKEEPER_HA_TOKEN")
     for line in env.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
