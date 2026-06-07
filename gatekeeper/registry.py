@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from .models import Device
-from .ha_mapping import map_ha
+from .ha_mapping import map_ha, RegistrySnapshot
 
 
 class Registry:
@@ -18,8 +18,9 @@ class Registry:
         return cls(devices)
 
     @classmethod
-    def from_ha(cls, states: list, services: list, overrides: dict | None = None) -> "Registry":
-        return cls(map_ha(states, services, overrides))
+    def from_ha(cls, states: list, services: list, overrides: dict | None = None,
+                snapshot: RegistrySnapshot | None = None) -> "Registry":
+        return cls(map_ha(states, services, overrides, snapshot))
 
     def device_ids(self) -> list[str]:
         return list(self._devices.keys())
