@@ -152,6 +152,17 @@ def test_fetch_registries_command_failure_raises():
         client.fetch_registries(ws_connect=lambda url: ws)
 
 
+def test_fetch_registries_unexpected_first_message_raises():
+    class NoAuthRequiredWS(StubWS):
+        def __init__(self, results_by_id):
+            super().__init__(results_by_id)
+            self._outbox = [{"type": "result"}]  # 首条不是 auth_required
+    ws = NoAuthRequiredWS({})
+    client = HAClient("http://ha:8123", token="t", client=object())
+    with pytest.raises(RuntimeError):
+        client.fetch_registries(ws_connect=lambda url: ws)
+
+
 def test_ws_url_derivation():
     assert HAClient("https://ha:8123/", token="t", client=object())._ws_url() == "wss://ha:8123/api/websocket"
     assert HAClient("http://localhost:8123", token="t", client=object())._ws_url() == "ws://localhost:8123/api/websocket"
