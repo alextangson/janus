@@ -76,3 +76,15 @@ def test_device_metadata_fields_set():
                entity_category="config", device_id="abc123")
     assert d.entity_category == "config"
     assert d.device_id == "abc123"
+
+
+def test_parse_result_candidates_default_empty():
+    from gatekeeper.models import ParseResult
+    pr = ParseResult(recognized=True)
+    assert pr.candidates == []
+
+
+def test_decision_accepts_ambiguous_stage_and_candidates():
+    from gatekeeper.models import Decision
+    d = Decision(verdict="confirm", stage="ambiguous", candidates=["light.a", "light.b"])
+    assert d.candidates == ["light.a", "light.b"]
