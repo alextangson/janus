@@ -49,6 +49,14 @@
 
 P3.1(注册表升级)先行 → P3.2 策展 + P3.3 去重(一起,都吃 registry)→ P3.4 别名 → P3.5 作用域 → P3.6 消歧(决策层)。每块完成都用**真机**(本台 MacBook 的 HA)验证"78 噪声 → 干净设备清单"、以及"打开空调"从 reject 变 allow/confirm。
 
+## 5.5 产品形态决策(2026-06-10 拍板,约束 P3 全线)
+
+- **入口**:不做自有 App/聊天界面。最终以 **HA conversation agent** 接入 Assist(聊天/语音),产品定位 = "给任何 LLM 套上安全门的对话代理"。
+- **打包**:**HACS custom integration**(非 add-on)。跑在 HA 内 → token 摩擦消失,配置走 config flow UI;唯一必要配置是 LLM 来源(云 key / 本地 Ollama)。现在不实现,但 P3 设计不得与之冲突;`HAClient` 终将被 hass 内部 API 替代,**不在其上过度投资**,纯逻辑继续沉淀在 `ha_mapping`/`engine`。
+- **红线:零配置默认可用**。P3.2 策展、P3.3 去重、P3.4 命名必须全自动;`ha_overrides.json`/`aliases.json` 之类只能是高级覆盖,不是使用前提。
+- **顺序**:P3.2+3.3 → P3.4 → 极薄 CLI REPL(自测/演示)→ C-lite(integration 骨架 + config flow + conversation agent)→ B(用户向 README + benchmark)。
+- **真机已证**(P3.1):`entity_category` 只标了 78 个可控设备中的 4 个(indicator light)——策展不能依赖它,噪声大头是 `_2` 同硬件重复,**P3.3 去重是主菜**,P3.2 规则须先用真机数据重测。
+
 ## 6. 成功标准(P3 整体)
 
 - `from_ha`(升级后)在真机上把 78 噪声实体收敛成**几十个有意义的设备**(去噪+去重);
