@@ -25,7 +25,7 @@ def _dedup(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, 
         if d.device_id:
             by_dev.setdefault(d.device_id, []).append(eid)
 
-    groups: dict[tuple, list[str]] = {}
+    groups: dict[tuple[tuple[str, str], ...], list[str]] = {}
     for dev_id in by_dev:
         entry = snapshot.by_device.get(dev_id)
         if not entry:
