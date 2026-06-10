@@ -61,3 +61,18 @@ class Engine:
             return Decision(verdict="confirm", stage="safety", reason="该操作敏感/不可逆,执行前需确认", **base)
 
         return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)
+
+    def decide_resolved(self, device_id: str, operation: str | None,
+                        params: dict | None = None) -> Decision:
+        """用户已明确选定设备后的无 LLM 复审:只走可行性 + 危险关卡(跳过解析与 τ)。"""
+        parse = ParseResult(recognized=True, device_id=device_id, operation=operation,
+                            params=params or {}, confidence=1.0)
+        base = dict(device_id=device_id, operation=operation,
+                    params=parse.params, confidence=1.0)
+        problem = check_feasibility(parse, self.registry)
+        if problem:
+            return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
+        if self.registry.is_dangerous(device_id, operation):
+            return Decision(verdict="confirm", stage="safety",
+                            reason="该操作敏感/不可逆,执行前需确认", **base)
+        return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)

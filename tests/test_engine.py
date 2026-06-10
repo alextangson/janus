@@ -152,3 +152,22 @@ def test_ambiguity_wins_over_filled_device_id():
                                 candidates=["light.a", "light.b"])),
                  _amb_registry(), tau=0.7)
     assert eng.decide("关灯").stage == "ambiguous"
+
+
+def _resolved_engine():
+    return Engine(FakeParser(_pr()), _amb_registry(), tau=0.7)
+
+
+def test_decide_resolved_allows_safe_op():
+    d = _resolved_engine().decide_resolved("light.a", "turn_off", {})
+    assert (d.verdict, d.stage, d.device_id) == ("allow", "passed", "light.a")
+
+
+def test_decide_resolved_keeps_safety_gate():
+    d = _resolved_engine().decide_resolved("lock.door", "unlock", {})
+    assert (d.verdict, d.stage) == ("confirm", "safety")
+
+
+def test_decide_resolved_rejects_infeasible():
+    d = _resolved_engine().decide_resolved("light.a", "set_temperature", {"temperature": 24})
+    assert (d.verdict, d.stage) == ("reject", "feasibility")
