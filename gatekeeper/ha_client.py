@@ -25,6 +25,10 @@ class HAClient:
         services = self._get("/api/services", headers)
         return states, services
 
+    def fetch_config(self) -> dict:
+        """拉 /api/config(单位制等实例配置)。"""
+        return self._get("/api/config", {"Authorization": f"Bearer {self.token}"})
+
     def _get(self, path: str, headers: dict):
         resp = self.client.get(self.base_url + path, headers=headers)
         resp.raise_for_status()

@@ -46,6 +46,23 @@ def test_climate_temp_and_mode_params():
     assert mode.enum == ["off", "cool", "heat", "auto"]
 
 
+def test_snapshot_temperature_unit_default_and_from_config():
+    assert build_registry_snapshot([], [], []).temperature_unit == "°C"
+    snap = build_registry_snapshot([], [], [], config={"unit_system": {"temperature": "°F"}})
+    assert snap.temperature_unit == "°F"
+
+
+def test_climate_temp_unit_follows_snapshot():
+    snap = build_registry_snapshot([], [], [], config={"unit_system": {"temperature": "°F"}})
+    c = map_ha(_states(), _services(), snapshot=snap)["climate.living_room"]
+    assert c.operations["set_temperature"].params["temperature"].unit == "°F"
+
+
+def test_climate_temp_unit_defaults_to_celsius():
+    c = map_ha(_states(), _services())["climate.living_room"]
+    assert c.operations["set_temperature"].params["temperature"].unit == "°C"
+
+
 def test_position_params():
     devices = map_ha(_states(), _services())
     pos = devices["cover.living_room_curtain"].operations["set_cover_position"].params["position"]

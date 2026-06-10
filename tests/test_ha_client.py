@@ -43,6 +43,15 @@ def test_fetch_returns_states_and_services_with_bearer():
     assert all(h["Authorization"] == "Bearer tok" for _, h in stub.calls)
 
 
+def test_fetch_config_gets_api_config():
+    stub = StubHTTP({"/api/config": {"unit_system": {"temperature": "°F"}}})
+    client = HAClient("http://ha:8123", token="tok", client=stub)
+    cfg = client.fetch_config()
+    assert cfg["unit_system"]["temperature"] == "°F"
+    assert any(u.endswith("/api/config") for u, _ in stub.calls)
+    assert all(h["Authorization"] == "Bearer tok" for _, h in stub.calls)
+
+
 def test_fetch_propagates_http_errors():
     stub = StubHTTP({"/api/states": {}}, status=401)
     client = HAClient("http://homeassistant.local:8123", token="bad", client=stub)

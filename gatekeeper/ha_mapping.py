@@ -15,17 +15,22 @@ class RegistrySnapshot:
     by_entity: dict[str, dict]
     by_device: dict[str, dict]
     by_area: dict[str, str]
+    temperature_unit: str = "°C"
 
 
-def build_registry_snapshot(entities: list, devices: list, areas: list) -> RegistrySnapshot:
-    """纯函数:三张 HA 注册表原始列表 → 带查找字典的快照。畸形项跳过。"""
+def build_registry_snapshot(entities: list, devices: list, areas: list,
+                            config: dict | None = None) -> RegistrySnapshot:
+    """纯函数:三张 HA 注册表原始列表(+可选 /api/config)→ 带查找字典的快照。畸形项跳过。"""
     by_entity = {e["entity_id"]: e for e in entities
                  if isinstance(e, dict) and e.get("entity_id")}
     by_device = {d["id"]: d for d in devices
                  if isinstance(d, dict) and d.get("id")}
     by_area = {a["area_id"]: a.get("name", "") for a in areas
                if isinstance(a, dict) and a.get("area_id")}
-    return RegistrySnapshot(by_entity, by_device, by_area)
+    unit = "°C"
+    if isinstance(config, dict):
+        unit = (config.get("unit_system") or {}).get("temperature") or "°C"
+    return RegistrySnapshot(by_entity, by_device, by_area, unit)
 
 
 SUPPORTED_DOMAINS = {
@@ -56,8 +61,9 @@ def _supports(attrs: dict, op: str) -> bool:
     return bool((attrs.get("supported_features") or 0) & bit)
 
 
-def _candidate_operations(domain: str, attrs: dict) -> dict[str, dict[str, ParamSpec]]:
-    """域 → {operation: {param: ParamSpec}}。参数范围取自实体属性。"""
+def _candidate_operations(domain: str, attrs: dict,
+                          temp_unit: str = "°C") -> dict[str, dict[str, ParamSpec]]:
+    """域 → {operation: {param: ParamSpec}}。参数范围取自实体属性,温度单位跟随 HA 配置。"""
     if domain == "light":
         modes = attrs.get("supported_color_modes")
         brightness = modes is None or any(m != "onoff" for m in modes)
@@ -69,7 +75,7 @@ def _candidate_operations(domain: str, attrs: dict) -> dict[str, dict[str, Param
         ops: dict[str, dict[str, ParamSpec]] = {"turn_on": {}, "turn_off": {}}
         ops["set_temperature"] = {"temperature": ParamSpec(
             type="int", min=_int(attrs.get("min_temp")), max=_int(attrs.get("max_temp")),
-            unit="°C", required=True)}
+            unit=temp_unit, required=True)}
         modes = attrs.get("hvac_modes")
         if modes:
             ops["set_hvac_mode"] = {"hvac_mode": ParamSpec(type="enum", enum=list(modes), required=True)}
@@ -124,6 +130,7 @@ def map_ha(states: list, services: list, overrides: dict | None = None,
     """纯函数:HA states+services → {entity_id: Device}。畸形实体跳过不崩。"""
     overrides = overrides or {}
     services_by_domain = {e["domain"]: set((e.get("services") or {}).keys()) for e in services}
+    temp_unit = snapshot.temperature_unit if snapshot else "°C"
     devices: dict[str, Device] = {}
 
     for st in states:
@@ -138,7 +145,7 @@ def map_ha(states: list, services: list, overrides: dict | None = None,
             ent_overrides = overrides.get(entity_id, {})
 
             operations: dict[str, OperationSpec] = {}
-            for op_name, params in _candidate_operations(domain, attrs).items():
+            for op_name, params in _candidate_operations(domain, attrs, temp_unit).items():
                 if op_name not in available:
                     continue
                 if not _supports(attrs, op_name):  # 按 supported_features 过滤能力型操作

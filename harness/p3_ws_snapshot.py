@@ -32,7 +32,8 @@ def main() -> None:
 
     states, services = client.fetch()
     entities, devices, areas = client.fetch_registries()
-    snap = build_registry_snapshot(entities, devices, areas)
+    snap = build_registry_snapshot(entities, devices, areas, config=client.fetch_config())
+    print(f"温度单位(跟随 HA 配置): {snap.temperature_unit}")
 
     before = map_ha(states, services)
     after = map_ha(states, services, snapshot=snap)
