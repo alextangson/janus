@@ -25,7 +25,7 @@ def _hardware_keys(entry: dict) -> list[tuple[str, str]]:
         if not (isinstance(ident, (list, tuple)) and len(ident) == 2):
             continue
         domain, value = ident
-        if not isinstance(value, str):
+        if not (isinstance(domain, str) and isinstance(value, str)):
             continue
         for ce in config_entries:
             if isinstance(ce, str) and ce and value.endswith(f"-{ce}"):
@@ -68,7 +68,8 @@ def _dedup(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, 
 
 def _prune(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, Device]:
     """丢 config/diagnostic;设备有主域实体 → 其 switch 全为从属开关,隐藏。"""
-    # 物理设备 → 注册表里全部非 config/diagnostic 实体的域
+    # 物理设备 → 注册表里全部非 config/diagnostic 实体的域。
+    # 注意:snapshot 是去重前的全量注册表,但按 device_id 查询,镜像设备互不污染。
     domains_by_dev: dict[str, set[str]] = {}
     for eid, ent in snapshot.by_entity.items():
         dev = ent.get("device_id")

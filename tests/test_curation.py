@@ -21,7 +21,7 @@ def test_hardware_keys_value_without_matching_suffix_kept_as_is():
 
 def test_hardware_keys_malformed_identifiers_skipped():
     entry = {"id": "d1",
-             "identifiers": ["garbage", ["only-one"], ["ok", 5]],
+             "identifiers": ["garbage", ["only-one"], ["ok", 5], [5, "value"]],
              "config_entries": []}
     assert _hardware_keys(entry) == []
 
