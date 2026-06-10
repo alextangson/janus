@@ -14,6 +14,37 @@ PRIMARY_DOMAINS = {
 _SUFFIX_RE = re.compile(r"_\d+$")
 
 
+def _suffix_count(entity_ids: list[str]) -> int:
+    return sum(1 for eid in entity_ids if _SUFFIX_RE.search(eid))
+
+
+def _dedup(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, Device]:
+    """同硬件键的设备只留一个代表(实体 id 带 _N 后缀最少者;平手取 device id 字典序最小)。"""
+    by_dev: dict[str, list[str]] = {}
+    for eid, d in devices.items():
+        if d.device_id:
+            by_dev.setdefault(d.device_id, []).append(eid)
+
+    groups: dict[tuple, list[str]] = {}
+    for dev_id in by_dev:
+        entry = snapshot.by_device.get(dev_id)
+        if not entry:
+            continue
+        keys = _hardware_keys(entry)
+        if not keys:
+            continue
+        groups.setdefault(tuple(sorted(keys)), []).append(dev_id)
+
+    dropped: set[str] = set()
+    for dev_ids in groups.values():
+        if len(dev_ids) < 2:
+            continue
+        rep = min(dev_ids, key=lambda d: (_suffix_count(by_dev[d]), d))
+        dropped.update(d for d in dev_ids if d != rep)
+
+    return {eid: d for eid, d in devices.items() if d.device_id not in dropped}
+
+
 def _hardware_keys(entry: dict) -> list[tuple[str, str]]:
     """device registry 条目 → 规范化硬件键(identifier 剥掉本设备 config_entry 后缀)。
 
