@@ -45,6 +45,32 @@ def _dedup(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, 
     return {eid: d for eid, d in devices.items() if d.device_id not in dropped}
 
 
+def _prune(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, Device]:
+    """丢 config/diagnostic;设备有主域实体 → 其 switch 全为从属开关,隐藏。"""
+    # 物理设备 → 注册表里全部非 config/diagnostic 实体的域
+    domains_by_dev: dict[str, set[str]] = {}
+    for eid, ent in snapshot.by_entity.items():
+        dev = ent.get("device_id")
+        if not dev or ent.get("entity_category"):
+            continue
+        domains_by_dev.setdefault(dev, set()).add(eid.split(".")[0])
+
+    out: dict[str, Device] = {}
+    for eid, d in devices.items():
+        if d.entity_category in {"config", "diagnostic"}:
+            continue
+        if d.type == "switch" and d.device_id:
+            if domains_by_dev.get(d.device_id, set()) & PRIMARY_DOMAINS:
+                continue
+        out[eid] = d
+    return out
+
+
+def curate(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, Device]:
+    """纯函数:先去重(设备粒度)后策展(实体粒度)。宁可少删,不可误删。"""
+    return _prune(_dedup(devices, snapshot), snapshot)
+
+
 def _hardware_keys(entry: dict) -> list[tuple[str, str]]:
     """device registry 条目 → 规范化硬件键(identifier 剥掉本设备 config_entry 后缀)。
 
