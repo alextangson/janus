@@ -150,7 +150,8 @@ class FakeResolveEngine(FakeEngine):
         self.registry = registry
         self.resolved_calls = []
 
-    def decide_resolved(self, device_id, operation, params):
+    def decide_resolved(self, device_id: str, operation: str | None,
+                        params: dict | None = None) -> Decision:
         self.resolved_calls.append((device_id, operation, params))
         return self._resolved
 
