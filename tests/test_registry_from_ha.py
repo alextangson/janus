@@ -41,6 +41,19 @@ def test_from_ha_passes_snapshot_through():
     assert d.area == "门厅"
 
 
+def test_from_ha_with_snapshot_applies_curation():
+    states, services = _ha()
+    snap = build_registry_snapshot(
+        [{"entity_id": "switch.kitchen_socket", "device_id": "devCam"},
+         {"entity_id": "camera.cam", "device_id": "devCam"}],
+        [{"id": "devCam", "identifiers": [["m", "X"]], "config_entries": []}],
+        [],
+    )
+    reg = Registry.from_ha(states, services, snapshot=snap)
+    assert reg.get("switch.kitchen_socket") is None   # 从属开关被策展掉
+    assert reg.get("lock.front_door") is not None     # 无注册表项的设备原样保留
+
+
 def test_engine_runs_on_ha_registry():
     states, services = _ha()
     reg = Registry.from_ha(states, services)
