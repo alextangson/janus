@@ -34,6 +34,19 @@ class Engine:
         if not parse.recognized:
             return Decision(verdict="reject", stage="parse", reason="没识别出对应的设备或操作", **base)
 
+        if parse.candidates:
+            valid = [c for c in parse.candidates
+                     if (dev := self.registry.get(c)) and parse.operation in dev.operations]
+            if len(valid) >= 2:
+                return Decision(verdict="confirm", stage="ambiguous", candidates=valid,
+                                reason="多台设备匹配,需要选择", **base)
+            if not valid:
+                return Decision(verdict="reject", stage="parse",
+                                reason="没识别出对应的设备或操作", **base)
+            # 唯一有效候选 → 当作普通解析,继续走 feasibility/τ/safety
+            parse = parse.model_copy(update={"device_id": valid[0], "candidates": []})
+            base["device_id"] = valid[0]
+
         problem = check_feasibility(parse, self.registry)
         if problem:
             return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
