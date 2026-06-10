@@ -34,6 +34,20 @@ class Engine:
         if not parse.recognized:
             return Decision(verdict="reject", stage="parse", reason="没识别出对应的设备或操作", **base)
 
+        if parse.candidates:
+            valid = [c for c in parse.candidates
+                     if (dev := self.registry.get(c)) and parse.operation in dev.operations]
+            if len(valid) >= 2:
+                return Decision(verdict="confirm", stage="ambiguous", candidates=valid,
+                                reason="多台设备匹配,需要选择",
+                                **{**base, "device_id": None})  # 歧义未消解,不携带模型偏好
+            if not valid:
+                return Decision(verdict="reject", stage="parse",
+                                reason="没识别出对应的设备或操作", **base)
+            # 唯一有效候选 → 当作普通解析,继续走 feasibility/τ/safety
+            parse = parse.model_copy(update={"device_id": valid[0], "candidates": []})
+            base["device_id"] = valid[0]
+
         problem = check_feasibility(parse, self.registry)
         if problem:
             return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
@@ -47,4 +61,19 @@ class Engine:
         if self.registry.is_dangerous(parse.device_id, parse.operation):
             return Decision(verdict="confirm", stage="safety", reason="该操作敏感/不可逆,执行前需确认", **base)
 
+        return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)
+
+    def decide_resolved(self, device_id: str, operation: str | None,
+                        params: dict | None = None) -> Decision:
+        """用户已明确选定设备后的无 LLM 复审:只走可行性 + 危险关卡(跳过解析与 τ)。"""
+        parse = ParseResult(recognized=True, device_id=device_id, operation=operation,
+                            params=params or {}, confidence=1.0)
+        base = dict(device_id=device_id, operation=operation,
+                    params=parse.params, confidence=1.0)
+        problem = check_feasibility(parse, self.registry)
+        if problem:
+            return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
+        if self.registry.is_dangerous(device_id, operation):
+            return Decision(verdict="confirm", stage="safety",
+                            reason="该操作敏感/不可逆,执行前需确认", **base)
         return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)

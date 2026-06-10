@@ -1,5 +1,6 @@
 from gatekeeper.controller import Controller, Outcome
-from gatekeeper.models import Decision
+from gatekeeper.models import Decision, Device, OperationSpec
+from gatekeeper.registry import Registry
 
 
 class FakeEngine:
@@ -134,3 +135,97 @@ def test_end_to_end_confirm_then_approve(registry):
     out2 = ctrl.confirm(out.decision, approved=True)
     assert out2.executed is True
     assert ha.calls == [("lock", "unlock", "lock.front_door", {})]
+
+
+# ---------------------------------------------------------------------------
+# Task 4: choices + choose()
+# ---------------------------------------------------------------------------
+
+class FakeResolveEngine(FakeEngine):
+    """带 decide_resolved 与 registry 的假引擎,供消歧链路测试。"""
+
+    def __init__(self, decision, resolved=None, registry=None):
+        super().__init__(decision)
+        self._resolved = resolved
+        self.registry = registry
+        self.resolved_calls = []
+
+    def decide_resolved(self, device_id: str, operation: str | None,
+                        params: dict | None = None) -> Decision:
+        self.resolved_calls.append((device_id, operation, params))
+        return self._resolved
+
+
+def _amb_decision(**kw):
+    base = {"verdict": "confirm", "stage": "ambiguous", "operation": "turn_off",
+            "params": {}, "candidates": ["light.a", "light.b"], "reason": "多台设备匹配"}
+    base.update(kw)
+    return Decision(**base)
+
+
+def _mini_registry():
+    op = {"turn_off": OperationSpec()}
+    return Registry({
+        "light.a": Device(name="主灯", type="light", area="卧室", operations=op),
+        "light.b": Device(name="氛围灯", type="light", area="卧室", operations=op),
+    })
+
+
+def test_ambiguous_outcome_carries_choices_and_numbered_prompt():
+    eng = FakeResolveEngine(_amb_decision(), registry=_mini_registry())
+    out = Controller(eng, StubHA()).handle("关掉卧室的灯")
+    assert out.needs_confirmation is True
+    assert out.choices == ["light.a", "light.b"]
+    assert "哪一个" in out.prompt
+    assert "主灯" in out.prompt and "氛围灯" in out.prompt
+
+
+def test_plain_confirm_has_no_choices():
+    out = Controller(FakeEngine(_decision("confirm", stage="safety")), StubHA()).handle("开锁")
+    assert out.choices is None
+
+
+def test_choose_executes_allowed_choice():
+    ha = StubHA()
+    resolved = Decision(verdict="allow", stage="passed", device_id="light.b",
+                        operation="turn_off", params={})
+    eng = FakeResolveEngine(_amb_decision(), resolved=resolved, registry=_mini_registry())
+    out = Controller(eng, ha).choose(_amb_decision(), "light.b")
+    assert out.executed is True
+    assert ha.calls == [("light", "turn_off", "light.b", {})]
+    assert eng.resolved_calls == [("light.b", "turn_off", {})]
+
+
+def test_choose_outside_candidates_refused():
+    ha = StubHA()
+    eng = FakeResolveEngine(_amb_decision(), registry=_mini_registry())
+    out = Controller(eng, ha).choose(_amb_decision(), "lock.door")
+    assert out.executed is False
+    assert out.error is not None
+    assert ha.calls == []
+    assert eng.resolved_calls == []
+
+
+def test_choose_dangerous_chains_to_confirm():
+    ha = StubHA()
+    resolved = Decision(verdict="confirm", stage="safety", device_id="lock.a",
+                        operation="unlock", params={}, reason="该操作敏感/不可逆,执行前需确认")
+    amb = _amb_decision(operation="unlock", candidates=["lock.a", "lock.b"])
+    eng = FakeResolveEngine(amb, resolved=resolved)
+    ctl = Controller(eng, ha)
+    out = ctl.choose(amb, "lock.a")
+    assert out.executed is False
+    assert out.needs_confirmation is True
+    assert ha.calls == []
+    # 链式:复用现有 confirm() 完成最终执行
+    out2 = ctl.confirm(resolved, approved=True)
+    assert out2.executed is True
+
+
+def test_confirm_refuses_ambiguous_decision():
+    ha = StubHA()
+    eng = FakeResolveEngine(_amb_decision(), registry=_mini_registry())
+    out = Controller(eng, ha).confirm(_amb_decision(device_id="light.a"), approved=True)
+    assert out.executed is False
+    assert out.error is not None
+    assert ha.calls == []
