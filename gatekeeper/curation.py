@@ -14,6 +14,27 @@ PRIMARY_DOMAINS = {
 _SUFFIX_RE = re.compile(r"_\d+$")
 
 
+def _hardware_keys(entry: dict) -> list[tuple[str, str]]:
+    """device registry 条目 → 规范化硬件键(identifier 剥掉本设备 config_entry 后缀)。
+
+    同一物理硬件挂多个配置条目(多个米家"家")时,剥后缀后键相同。畸形项跳过,宁可不去重。
+    """
+    keys: list[tuple[str, str]] = []
+    config_entries = entry.get("config_entries") or []
+    for ident in entry.get("identifiers") or []:
+        if not (isinstance(ident, (list, tuple)) and len(ident) == 2):
+            continue
+        domain, value = ident
+        if not isinstance(value, str):
+            continue
+        for ce in config_entries:
+            if isinstance(ce, str) and ce and value.endswith(f"-{ce}"):
+                value = value[: -(len(ce) + 1)]
+                break
+        keys.append((domain, value))
+    return keys
+
+
 def _suffix_count(entity_ids: list[str]) -> int:
     return sum(1 for eid in entity_ids if _SUFFIX_RE.search(eid))
 
@@ -69,24 +90,3 @@ def _prune(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, 
 def curate(devices: dict[str, Device], snapshot: RegistrySnapshot) -> dict[str, Device]:
     """纯函数:先去重(设备粒度)后策展(实体粒度)。宁可少删,不可误删。"""
     return _prune(_dedup(devices, snapshot), snapshot)
-
-
-def _hardware_keys(entry: dict) -> list[tuple[str, str]]:
-    """device registry 条目 → 规范化硬件键(identifier 剥掉本设备 config_entry 后缀)。
-
-    同一物理硬件挂多个配置条目(多个米家"家")时,剥后缀后键相同。畸形项跳过,宁可不去重。
-    """
-    keys: list[tuple[str, str]] = []
-    config_entries = entry.get("config_entries") or []
-    for ident in entry.get("identifiers") or []:
-        if not (isinstance(ident, (list, tuple)) and len(ident) == 2):
-            continue
-        domain, value = ident
-        if not isinstance(value, str):
-            continue
-        for ce in config_entries:
-            if isinstance(ce, str) and ce and value.endswith(f"-{ce}"):
-                value = value[: -(len(ce) + 1)]
-                break
-        keys.append((domain, value))
-    return keys
