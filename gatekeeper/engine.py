@@ -39,7 +39,8 @@ class Engine:
                      if (dev := self.registry.get(c)) and parse.operation in dev.operations]
             if len(valid) >= 2:
                 return Decision(verdict="confirm", stage="ambiguous", candidates=valid,
-                                reason="多台设备匹配,需要选择", **base)
+                                reason="多台设备匹配,需要选择",
+                                **{**base, "device_id": None})  # 歧义未消解,不携带模型偏好
             if not valid:
                 return Decision(verdict="reject", stage="parse",
                                 reason="没识别出对应的设备或操作", **base)

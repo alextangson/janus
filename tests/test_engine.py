@@ -171,3 +171,19 @@ def test_decide_resolved_keeps_safety_gate():
 def test_decide_resolved_rejects_infeasible():
     d = _resolved_engine().decide_resolved("light.a", "set_temperature", {"temperature": 24})
     assert (d.verdict, d.stage) == ("reject", "feasibility")
+
+
+def test_ambiguous_decision_has_no_device_id():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_off",
+                                candidates=["light.a", "light.b"])),
+                 _amb_registry(), tau=0.7)
+    d = eng.decide("关灯")
+    assert d.stage == "ambiguous"
+    assert d.device_id is None  # 歧义未消解,不得携带模型偏好的 device_id
+
+
+def test_decide_resolved_skips_tau_gate():
+    # τ 高到 decide() 必拦,decide_resolved 仍放行:用户的明确选择即满置信
+    eng = Engine(FakeParser(_pr()), _amb_registry(), tau=0.999)
+    d = eng.decide_resolved("light.a", "turn_off", {})
+    assert (d.verdict, d.stage) == ("allow", "passed")

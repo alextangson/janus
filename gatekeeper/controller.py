@@ -34,6 +34,9 @@ class Controller:
         return Outcome(decision=decision, executed=False)  # reject
 
     def confirm(self, decision: Decision, approved: bool) -> Outcome:
+        if decision.stage == "ambiguous":
+            return Outcome(decision=decision, executed=False,
+                           error="歧义未消解,请先通过 choose() 选择设备")
         if approved:
             return self._execute(decision)
         return Outcome(decision=decision, executed=False)  # 用户否决

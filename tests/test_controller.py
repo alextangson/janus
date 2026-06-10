@@ -220,3 +220,12 @@ def test_choose_dangerous_chains_to_confirm():
     # 链式:复用现有 confirm() 完成最终执行
     out2 = ctl.confirm(resolved, approved=True)
     assert out2.executed is True
+
+
+def test_confirm_refuses_ambiguous_decision():
+    ha = StubHA()
+    eng = FakeResolveEngine(_amb_decision(), registry=_mini_registry())
+    out = Controller(eng, ha).confirm(_amb_decision(device_id="light.a"), approved=True)
+    assert out.executed is False
+    assert out.error is not None
+    assert ha.calls == []
