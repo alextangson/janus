@@ -22,7 +22,7 @@
      - 其他输入 → 重示原 prompt(pending 保留)
   2. `pending` 存在、无 choices(是/否确认):
      - `y`/`是`/`yes` → `controller.confirm(pending.decision, approved=True)`
-     - `n`/`否`/`no`/`取消` → `confirm(..., approved=False)`,回"已取消"
+     - `n`/`否`/`no`/`取消` → 清 pending,回"已取消"(Controller 无状态,无需通知)
      - 其他输入 → 重示原 prompt
   3. 无 pending:空行 → 空串;否则 `controller.handle(line)`
   - **Outcome 渲染**(三处共用):`executed` → `✅ 已执行:<device_id>.<operation>`;`error` 非空 → `❌ 失败:<error>`;`needs_confirmation` → 存/更新 pending,返回 `outcome.prompt`;其余(reject/否决)→ `🚫 <decision.reason 或 "已取消">`
