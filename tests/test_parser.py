@@ -110,3 +110,9 @@ def test_parser_gives_up_after_max_retries(registry):
     with pytest.raises(RuntimeError):
         parser.parse("开客厅灯")
     assert client.messages.calls == 3  # max_retries + 1 次尝试
+
+
+def test_prompt_and_schema_teach_candidates():
+    from gatekeeper.prompts import SYSTEM_PROMPT, parse_schema
+    assert "candidates" in SYSTEM_PROMPT
+    assert "candidates" in parse_schema()["properties"]
