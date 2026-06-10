@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .models import Device
 from .ha_mapping import map_ha, RegistrySnapshot
+from .curation import curate
 
 
 class Registry:
@@ -20,7 +21,10 @@ class Registry:
     @classmethod
     def from_ha(cls, states: list, services: list, overrides: dict | None = None,
                 snapshot: RegistrySnapshot | None = None) -> "Registry":
-        return cls(map_ha(states, services, overrides, snapshot))
+        devices = map_ha(states, services, overrides, snapshot)
+        if snapshot is not None:
+            devices = curate(devices, snapshot)
+        return cls(devices)
 
     def device_ids(self) -> list[str]:
         return list(self._devices.keys())
