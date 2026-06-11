@@ -88,3 +88,14 @@ def test_decision_accepts_ambiguous_stage_and_candidates():
     from gatekeeper.models import Decision
     d = Decision(verdict="confirm", stage="ambiguous", candidates=["light.a", "light.b"])
     assert d.candidates == ["light.a", "light.b"]
+
+
+def test_parse_result_inferred_defaults_false():
+    from gatekeeper.models import ParseResult
+    assert ParseResult(recognized=True).inferred is False
+
+
+def test_decision_accepts_inferred_stage():
+    from gatekeeper.models import Decision
+    d = Decision(verdict="confirm", stage="inferred", reason="室外偏凉,建议调高空调")
+    assert d.stage == "inferred"

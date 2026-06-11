@@ -34,12 +34,13 @@ class ParseResult(BaseModel):
     operation: str | None = None
     params: dict[str, bool | int | str] = Field(default_factory=dict)
     candidates: list[str] = Field(default_factory=list)
+    inferred: bool = False
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     notes: str = ""
 
 
 Verdict = Literal["allow", "confirm", "reject"]
-Stage = Literal["parse", "ambiguous", "feasibility", "confidence", "safety", "passed", "error"]
+Stage = Literal["parse", "ambiguous", "feasibility", "inferred", "confidence", "safety", "passed", "error"]
 
 
 class Decision(BaseModel):
