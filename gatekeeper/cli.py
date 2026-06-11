@@ -50,3 +50,54 @@ class Repl:
             self.pending = outcome
             return outcome.prompt or ""
         return f"🚫 {outcome.decision.reason or '已取消'}"
+
+
+_EXIT = {"exit", "quit", "q"}
+
+
+def main() -> None:
+    import os
+
+    from .config import BACKEND, LOCAL_MODEL, MODEL, TAU, load_env
+    from .controller import Controller
+    from .engine import Engine
+    from .ha_client import HAClient
+    from .ha_mapping import build_registry_snapshot
+    from .registry import Registry
+
+    load_env()
+    url = os.environ.get("GATEKEEPER_HA_URL")
+    token = os.environ.get("GATEKEEPER_HA_TOKEN")
+    if not url or not token:
+        raise SystemExit("缺少 GATEKEEPER_HA_URL / GATEKEEPER_HA_TOKEN(.env 或环境变量)")
+
+    client = HAClient(url, token=token)
+    states, services = client.fetch()
+    snap = build_registry_snapshot(*client.fetch_registries(), config=client.fetch_config())
+    reg = Registry.from_ha(states, services, snapshot=snap)
+
+    if BACKEND == "local":
+        from .local_parser import LocalParser
+        parser, model_desc = LocalParser(reg, LOCAL_MODEL), f"local/{LOCAL_MODEL}"
+    else:
+        from .parser import ClaudeParser
+        parser, model_desc = ClaudeParser(reg, MODEL), f"claude/{MODEL}"
+
+    repl = Repl(Controller(Engine(parser, reg, TAU), client))
+    print(f"gatekeeper REPL — {len(reg.device_ids())} 设备 | {model_desc} | τ={TAU} | 温度单位 {snap.temperature_unit}")
+    print("输入指令开始;exit 退出。")
+    while True:
+        try:
+            line = input("> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if line.strip().lower() in _EXIT:
+            return
+        reply = repl.feed(line)
+        if reply:
+            print(reply)
+
+
+if __name__ == "__main__":
+    main()
