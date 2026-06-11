@@ -229,3 +229,14 @@ def test_confirm_refuses_ambiguous_decision():
     assert out.executed is False
     assert out.error is not None
     assert ha.calls == []
+
+
+def test_inferred_prompt_shows_proposal_and_params():
+    d = _decision("confirm", stage="inferred", device_id="climate.ac",
+                  operation="set_temperature", params={"temperature": 26},
+                  reason="室外 14°C 偏凉,建议把空调调到 26°C")
+    out = Controller(FakeEngine(d), StubHA()).handle("有点冷")
+    assert out.needs_confirmation is True
+    assert out.prompt.startswith("💡 室外 14°C 偏凉")
+    assert "set_temperature → climate.ac" in out.prompt
+    assert "'temperature': 26" in out.prompt
