@@ -8,6 +8,18 @@ DATA = ROOT / "data"
 DEVICES_PATH = DATA / "devices.json"
 TESTSET_PATH = DATA / "testset.jsonl"
 
+
+def load_env(path: str | Path | None = None) -> None:
+    """读 .env(默认仓库根),setdefault 注入环境;不存在则静默(shell 可能已提供)。"""
+    env = Path(path) if path is not None else ROOT / ".env"
+    if not env.exists():
+        return
+    for line in env.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
 # 置信度阈值;可用 GATEKEEPER_TAU 覆盖以便扫阈值
 TAU = float(os.environ.get("GATEKEEPER_TAU", "0.7"))
 

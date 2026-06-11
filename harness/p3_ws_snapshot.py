@@ -7,25 +7,14 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
+from gatekeeper.config import load_env
 from gatekeeper.ha_client import HAClient
 from gatekeeper.ha_mapping import build_registry_snapshot, map_ha
 
 
-def _load_env() -> None:
-    env = Path(__file__).resolve().parent.parent / ".env"
-    if not env.exists():
-        raise SystemExit("缺少 .env:请设置 GATEKEEPER_HA_URL 和 GATEKEEPER_HA_TOKEN")
-    for line in env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
-
-
 def main() -> None:
-    _load_env()
+    load_env()
     url = os.environ["GATEKEEPER_HA_URL"]
     token = os.environ["GATEKEEPER_HA_TOKEN"]
     client = HAClient(url, token=token)
