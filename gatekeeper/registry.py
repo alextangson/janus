@@ -50,7 +50,7 @@ class Registry:
         lines: list[str] = []
         for device_id, device in sorted(self._devices.items()):
             lines.append(f"- {device_id}({device.name},区域:{device.area})")
-            for op_name, op in device.operations.items():
+            for op_name, op in sorted(device.operations.items()):
                 if not op.params:
                     lines.append(f"    · {op_name} 参数:无")
                     continue
