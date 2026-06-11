@@ -187,3 +187,33 @@ def test_decide_resolved_skips_tau_gate():
     eng = Engine(FakeParser(_pr()), _amb_registry(), tau=0.999)
     d = eng.decide_resolved("light.a", "turn_off", {})
     assert (d.verdict, d.stage) == ("allow", "passed")
+
+
+def test_inferred_always_confirms_with_notes_reason():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on",
+                                inferred=True, confidence=0.95,
+                                notes="室外偏凉,建议开灯取暖?不,开灯照明")),
+                 _amb_registry(), tau=0.7)
+    d = eng.decide("有点暗")
+    assert (d.verdict, d.stage) == ("confirm", "inferred")
+    assert "建议" in d.reason
+
+
+def test_inferred_default_reason_when_notes_empty():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on", inferred=True)),
+                 _amb_registry(), tau=0.7)
+    d = eng.decide("有点暗")
+    assert d.stage == "inferred" and d.reason  # 兜底话术非空
+
+
+def test_inferred_params_still_pass_feasibility_first():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="set_temperature",
+                                params={"temperature": 26}, inferred=True)),
+                 _amb_registry(), tau=0.7)
+    d = eng.decide("有点冷")
+    assert (d.verdict, d.stage) == ("reject", "feasibility")  # 灯不支持设温度 → 先拒
+
+
+def test_explicit_command_unaffected():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on")), _amb_registry(), tau=0.7)
+    assert eng.decide("开灯").stage == "passed"

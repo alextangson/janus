@@ -19,9 +19,10 @@ class _Cat(Enum):  # 模拟 HA 的 EntityCategory 枚举
 
 
 def test_states_from_hass():
-    s = SimpleNamespace(entity_id="light.a", attributes={"friendly_name": "主灯"})
-    assert states_from_hass([s]) == [{"entity_id": "light.a",
+    s = SimpleNamespace(entity_id="light.a", state="on", attributes={"friendly_name": "主灯"})
+    assert states_from_hass([s]) == [{"entity_id": "light.a", "state": "on",
                                       "attributes": {"friendly_name": "主灯"}}]
+    # state 键是 build_context 的依赖:漏掉它,Janus 里每个设备都渲染成 unknown
 
 
 def test_services_from_hass():
@@ -66,8 +67,8 @@ def test_converters_feed_existing_pure_logic_end_to_end():
     from gatekeeper.registry import Registry
 
     states = states_from_hass([
-        SimpleNamespace(entity_id="light.a", attributes={"friendly_name": "主灯"}),
-        SimpleNamespace(entity_id="switch.cam_wm", attributes={"friendly_name": "水印"}),
+        SimpleNamespace(entity_id="light.a", state="on", attributes={"friendly_name": "主灯"}),
+        SimpleNamespace(entity_id="switch.cam_wm", state="on", attributes={"friendly_name": "水印"}),
     ])
     services = services_from_hass({"light": {"turn_on": 0, "turn_off": 0},
                                    "switch": {"turn_on": 0, "turn_off": 0}})

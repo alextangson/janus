@@ -71,6 +71,7 @@ def main() -> None:
     import os
 
     from .config import BACKEND, LOCAL_MODEL, MODEL, TAU, load_env
+    from .context import build_context
     from .controller import Controller
     from .engine import Engine
     from .ha_client import HAClient
@@ -88,12 +89,17 @@ def main() -> None:
     snap = build_registry_snapshot(*client.fetch_registries(), config=client.fetch_config())
     reg = Registry.from_ha(states, services, snapshot=snap)
 
+    def context_provider() -> str:
+        return build_context(client.fetch()[0], reg)  # 每轮重拉,状态保持新鲜
+
     if BACKEND == "local":
         from .local_parser import LocalParser
-        parser, model_desc = LocalParser(reg, LOCAL_MODEL), f"local/{LOCAL_MODEL}"
+        parser, model_desc = (LocalParser(reg, LOCAL_MODEL, context_provider=context_provider),
+                              f"local/{LOCAL_MODEL}")
     else:
         from .parser import ClaudeParser
-        parser, model_desc = ClaudeParser(reg, MODEL), f"claude/{MODEL}"
+        parser, model_desc = (ClaudeParser(reg, MODEL, context_provider=context_provider),
+                              f"claude/{MODEL}")
 
     repl = Repl(Controller(Engine(parser, reg, TAU), client))
     print(f"gatekeeper REPL — {len(reg.device_ids())} 设备 | {model_desc} | τ={TAU} | 温度单位 {snap.temperature_unit}")

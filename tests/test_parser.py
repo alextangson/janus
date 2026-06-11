@@ -116,3 +116,68 @@ def test_prompt_and_schema_teach_candidates():
     from gatekeeper.prompts import SYSTEM_PROMPT, parse_schema
     assert "candidates" in SYSTEM_PROMPT
     assert "candidates" in parse_schema()["properties"]
+
+
+def test_user_prompt_inserts_context_between_catalog_and_instruction():
+    from gatekeeper.prompts import build_user_prompt
+    from gatekeeper.registry import Registry
+    reg = Registry({})
+    out = build_user_prompt(reg, "开灯", context="- climate.ac: off")
+    assert "当前状态(供推断参考):\n- climate.ac: off" in out
+    assert out.index("当前状态") < out.index("用户指令:开灯")
+    # 不传 context 时不出现该段
+    assert "当前状态" not in build_user_prompt(reg, "开灯")
+
+
+def test_system_prompt_teaches_inferred():
+    from gatekeeper.prompts import SYSTEM_PROMPT
+    assert "inferred" in SYSTEM_PROMPT
+
+
+def test_claude_parser_injects_context(monkeypatch):
+    from gatekeeper.parser import ClaudeParser
+    from gatekeeper.registry import Registry
+
+    captured = {}
+
+    class _FakeMessages:
+        def create(self, **kw):
+            captured.update(kw)
+            raise RuntimeError("stop here")  # 只验 prompt,不需要完整响应
+
+    class _FakeClient:
+        messages = _FakeMessages()
+
+    p = ClaudeParser(Registry({}), "m", client=_FakeClient(), max_retries=0,
+                     context_provider=lambda: "- climate.ac: off")
+    try:
+        p.parse("有点冷")
+    except RuntimeError:
+        pass
+    assert "- climate.ac: off" in captured["messages"][0]["content"]
+
+
+def test_claude_parser_context_failure_degrades(monkeypatch):
+    from gatekeeper.parser import ClaudeParser
+    from gatekeeper.registry import Registry
+
+    captured = {}
+
+    class _FakeMessages:
+        def create(self, **kw):
+            captured.update(kw)
+            raise RuntimeError("stop here")
+
+    class _FakeClient:
+        messages = _FakeMessages()
+
+    def boom():
+        raise OSError("HA down")
+
+    p = ClaudeParser(Registry({}), "m", client=_FakeClient(), max_retries=0,
+                     context_provider=boom)
+    try:
+        p.parse("开灯")
+    except RuntimeError:
+        pass
+    assert "当前状态" not in captured["messages"][0]["content"]  # 降级:无上下文照常解析

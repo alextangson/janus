@@ -5,6 +5,7 @@ import json
 from openai import OpenAI
 
 from .models import ParseResult
+from .parser import _safe_context
 from .prompts import SYSTEM_PROMPT, TOOL_DESC, TOOL_NAME, build_user_prompt, parse_schema
 from .registry import Registry
 
@@ -14,9 +15,10 @@ class LocalParser:
 
     def __init__(self, registry: Registry, model: str,
                  base_url: str = "http://localhost:11434/v1", client: OpenAI | None = None,
-                 timeout: float = 120.0):
+                 timeout: float = 120.0, context_provider=None):
         self.registry = registry
         self.model = model
+        self.context_provider = context_provider
         # 有限超时:本地模型卡死时引擎 fail-closed(拒绝),绝不无限挂起。
         # 默认留足冷加载余量(9.6GB 模型首次载入可达 1-2 分钟)。
         self.client = client if client is not None else OpenAI(
@@ -28,7 +30,8 @@ class LocalParser:
             temperature=0,  # 安全关卡必须确定性解码,不能靠采样赌
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": build_user_prompt(self.registry, instruction)},
+                {"role": "user", "content": build_user_prompt(
+                    self.registry, instruction, _safe_context(self.context_provider))},
             ],
             tools=[{"type": "function", "function": {
                 "name": TOOL_NAME, "description": TOOL_DESC, "parameters": parse_schema()}}],
