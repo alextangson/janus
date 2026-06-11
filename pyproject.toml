@@ -11,6 +11,9 @@ dependencies = [
     "websocket-client>=1.7",
 ]
 
+[project.scripts]
+gatekeeper = "gatekeeper.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
