@@ -19,35 +19,38 @@ async def async_setup_entry(hass, entry) -> bool:
     from .bridge import (HassServiceCaller, areas_from_registry, config_from_hass,
                          devices_from_registry, entities_from_registry,
                          services_from_hass, states_from_hass)
-    from .gatekeeper.config import MODEL, TAU
-    from .gatekeeper.controller import Controller
-    from .gatekeeper.engine import Engine
-    from .gatekeeper.ha_mapping import build_registry_snapshot
-    from .gatekeeper.registry import Registry
 
-    snap = build_registry_snapshot(
-        entities_from_registry(er.async_get(hass).entities.values()),
-        devices_from_registry(dr.async_get(hass).devices.values()),
-        areas_from_registry(ar.async_get(hass).areas.values()),
-        config=config_from_hass(hass.config.units.temperature_unit),
-    )
-    reg = Registry.from_ha(
-        states_from_hass(hass.states.async_all()),
-        services_from_hass(hass.services.async_services()),
-        snapshot=snap,
-    )
+    # 事件循环内只做注册表/状态读取(必须在循环线程);bridge 仅 stdlib,导入轻。
+    entities = entities_from_registry(er.async_get(hass).entities.values())
+    devices = devices_from_registry(dr.async_get(hass).devices.values())
+    areas = areas_from_registry(ar.async_get(hass).areas.values())
+    states = states_from_hass(hass.states.async_all())
+    services = services_from_hass(hass.services.async_services())
+    config = config_from_hass(hass.config.units.temperature_unit)
+    data = dict(entry.data)
 
-    data = entry.data
-    if data["backend"] == "local":
-        from .gatekeeper.local_parser import LocalParser
-        parser = LocalParser(reg, data["model"], base_url=data["base_url"])
-    else:
-        from anthropic import Anthropic
+    def _build_controller():
+        # 重活全在 executor 线程:gatekeeper/pydantic/SDK 导入 + OpenAI/Anthropic
+        # 客户端构造(同步加载 SSL 证书,HA 禁止在事件循环里做)。
+        from .gatekeeper.config import MODEL, TAU
+        from .gatekeeper.controller import Controller
+        from .gatekeeper.engine import Engine
+        from .gatekeeper.ha_mapping import build_registry_snapshot
+        from .gatekeeper.registry import Registry
 
-        from .gatekeeper.parser import ClaudeParser
-        parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]))
+        snap = build_registry_snapshot(entities, devices, areas, config=config)
+        reg = Registry.from_ha(states, services, snapshot=snap)
+        if data["backend"] == "local":
+            from .gatekeeper.local_parser import LocalParser
+            parser = LocalParser(reg, data["model"], base_url=data["base_url"])
+        else:
+            from anthropic import Anthropic
 
-    controller = Controller(Engine(parser, reg, TAU), HassServiceCaller(hass))
+            from .gatekeeper.parser import ClaudeParser
+            parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]))
+        return Controller(Engine(parser, reg, TAU), HassServiceCaller(hass))
+
+    controller = await hass.async_add_executor_job(_build_controller)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = controller
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
