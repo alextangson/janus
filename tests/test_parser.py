@@ -116,3 +116,19 @@ def test_prompt_and_schema_teach_candidates():
     from gatekeeper.prompts import SYSTEM_PROMPT, parse_schema
     assert "candidates" in SYSTEM_PROMPT
     assert "candidates" in parse_schema()["properties"]
+
+
+def test_user_prompt_inserts_context_between_catalog_and_instruction():
+    from gatekeeper.prompts import build_user_prompt
+    from gatekeeper.registry import Registry
+    reg = Registry({})
+    out = build_user_prompt(reg, "开灯", context="- climate.ac: off")
+    assert "当前状态(供推断参考):\n- climate.ac: off" in out
+    assert out.index("当前状态") < out.index("用户指令:开灯")
+    # 不传 context 时不出现该段
+    assert "当前状态" not in build_user_prompt(reg, "开灯")
+
+
+def test_system_prompt_teaches_inferred():
+    from gatekeeper.prompts import SYSTEM_PROMPT
+    assert "inferred" in SYSTEM_PROMPT
