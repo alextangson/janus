@@ -9,7 +9,8 @@ import asyncio
 
 
 def states_from_hass(states) -> list:
-    return [{"entity_id": s.entity_id, "attributes": dict(s.attributes)} for s in states]
+    return [{"entity_id": s.entity_id, "state": s.state, "attributes": dict(s.attributes)}
+            for s in states]
 
 
 def services_from_hass(services_by_domain) -> list:
