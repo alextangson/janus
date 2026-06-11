@@ -20,6 +20,7 @@ def load_env(path: str | Path | None = None) -> None:
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
+
 # 置信度阈值;可用 GATEKEEPER_TAU 覆盖以便扫阈值
 TAU = float(os.environ.get("GATEKEEPER_TAU", "0.7"))
 
