@@ -88,3 +88,13 @@ def test_local_parser_raises_when_no_tool_call(registry):
     parser = LocalParser(registry, model="test", client=StubOpenAINoTool())
     with pytest.raises(ValueError):
         parser.parse("开客厅灯")
+
+
+def test_default_client_has_bounded_timeout(monkeypatch):
+    # 无注入 client 时,默认 OpenAI 客户端必须带有限超时:卡死的本地模型
+    # 应让引擎 fail-closed(优雅拒绝),而不是无限挂起。
+    from gatekeeper.registry import Registry
+
+    parser = LocalParser(Registry({}), "gemma4")
+    assert parser.client.timeout is not None
+    assert float(parser.client.timeout) <= 180

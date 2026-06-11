@@ -13,10 +13,14 @@ class LocalParser:
     """OpenAI 兼容接口(如 Ollama)的解析器。prompt 与工具 schema 与 ClaudeParser 共用。"""
 
     def __init__(self, registry: Registry, model: str,
-                 base_url: str = "http://localhost:11434/v1", client: OpenAI | None = None):
+                 base_url: str = "http://localhost:11434/v1", client: OpenAI | None = None,
+                 timeout: float = 120.0):
         self.registry = registry
         self.model = model
-        self.client = client if client is not None else OpenAI(base_url=base_url, api_key="ollama")
+        # 有限超时:本地模型卡死时引擎 fail-closed(拒绝),绝不无限挂起。
+        # 默认留足冷加载余量(9.6GB 模型首次载入可达 1-2 分钟)。
+        self.client = client if client is not None else OpenAI(
+            base_url=base_url, api_key="ollama", timeout=timeout)
 
     def parse(self, instruction: str) -> ParseResult:
         resp = self.client.chat.completions.create(

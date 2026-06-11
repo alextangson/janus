@@ -104,9 +104,17 @@ def main() -> None:
         except (EOFError, KeyboardInterrupt):
             print()
             return
-        if line.strip().lower() in _EXIT:
+        line_l = line.strip().lower()
+        if line_l in _EXIT:
             return
-        reply = repl.feed(line)
+        if line.strip() and repl.pending is None and line_l not in _DEVICES:
+            print("(模型解析中…按 Ctrl-C 取消本条)", flush=True)
+        try:
+            reply = repl.feed(line)
+        except KeyboardInterrupt:
+            repl.pending = None  # 丢弃半截状态,确定性回到空闲
+            print("(已取消本条指令)")
+            continue
         if reply:
             print(reply)
 
