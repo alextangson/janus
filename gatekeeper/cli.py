@@ -4,6 +4,7 @@ from .controller import Outcome
 
 _YES = {"y", "yes", "是", "好"}
 _NO = {"n", "no", "否", "取消"}
+_DEVICES = {"设备", "/devices"}
 
 
 class Repl:
@@ -19,7 +20,18 @@ class Repl:
             return self._feed_pending(line)
         if not line:
             return ""
+        if line.lower() in _DEVICES:  # 本地命令:不走 LLM
+            return self._render_devices()
         return self._render(self.controller.handle(line))
+
+    def _render_devices(self) -> str:
+        reg = self.controller.engine.registry
+        lines = []
+        for did in reg.device_ids():
+            d = reg.get(did)
+            area = f" @{d.area}" if d.area else ""
+            lines.append(f"- {d.name}{area} ({did})")
+        return f"共 {len(lines)} 个设备:\n" + "\n".join(lines)
 
     def _feed_pending(self, line: str) -> str:
         pending = self.pending
@@ -85,7 +97,7 @@ def main() -> None:
 
     repl = Repl(Controller(Engine(parser, reg, TAU), client))
     print(f"gatekeeper REPL — {len(reg.device_ids())} 设备 | {model_desc} | τ={TAU} | 温度单位 {snap.temperature_unit}")
-    print("输入指令开始;exit 退出。")
+    print("输入指令开始;「设备」看清单,exit 退出。")
     while True:
         try:
             line = input("> ")

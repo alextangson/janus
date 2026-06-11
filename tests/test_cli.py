@@ -148,3 +148,16 @@ def test_ambiguous_choice_chains_to_danger_confirm_then_executes():
     assert ha.calls == []
     assert repl.feed("y") == "✅ 已执行:lock.a.unlock"
     assert ha.calls == [("lock", "unlock", "lock.a", {})]
+
+
+def test_devices_command_lists_catalog_without_llm():
+    repl, ha = _mk(_allow())
+    out = repl.feed("设备")
+    assert "主灯" in out and "氛围灯" in out and "light.a" in out and "@卧室" in out
+    assert ha.calls == []          # 不执行
+    assert repl.pending is None
+
+
+def test_devices_command_slash_alias():
+    repl, _ = _mk(_allow())
+    assert "主灯" in repl.feed("/devices")
