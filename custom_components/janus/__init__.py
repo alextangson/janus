@@ -53,6 +53,7 @@ def build_controller(hass, shapes: dict, data: dict):
     SSL 加载)全在这里,必须在 executor 线程调用,不得碰事件循环。"""
     from .bridge import HassServiceCaller
     from .gatekeeper.config import MODEL, TAU
+    from .gatekeeper.context import build_context
     from .gatekeeper.controller import Controller
     from .gatekeeper.engine import Engine
     from .gatekeeper.ha_mapping import build_registry_snapshot
@@ -61,12 +62,16 @@ def build_controller(hass, shapes: dict, data: dict):
     snap = build_registry_snapshot(shapes["entities"], shapes["devices"],
                                    shapes["areas"], config=shapes["config"])
     reg = Registry.from_ha(shapes["states"], shapes["services"], snapshot=snap)
+
+    def context_provider() -> str:
+        return build_context(shapes["states"], reg)  # shapes 每轮重建,本就新鲜
+
     if data["backend"] == "local":
         from .gatekeeper.local_parser import LocalParser
-        parser = LocalParser(reg, data["model"], base_url=data["base_url"])
+        parser = LocalParser(reg, data["model"], base_url=data["base_url"], context_provider=context_provider)
     else:
         from anthropic import Anthropic
 
         from .gatekeeper.parser import ClaudeParser
-        parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]))
+        parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]), context_provider=context_provider)
     return Controller(Engine(parser, reg, TAU), HassServiceCaller(hass))
