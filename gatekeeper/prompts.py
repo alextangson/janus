@@ -15,6 +15,7 @@ SYSTEM_PROMPT = """你是一个智能家居指令解析器。你唯一的职责:
 - confidence 表示你对"这就是用户意图"的把握(0~1):指令清晰直接→高;含糊、可能指代多个设备、信息不全→低。
 - 若指令含糊地匹配多个设备(同名/同区域/同类型),不要硬猜:令 recognized=true,把全部可能的 device_id 列入 candidates,device_id 留空;operation 与 params 照常填。明确无歧义时 candidates 必须为空。
 - 若指令是模糊的舒适度/感受表达(冷、热、闷、暗等)而非明确命令:照常填 device_id/operation/params(结合"当前状态"推断合理参数),令 inferred=true,并在 notes 用一句中文说明推断理由(如"室外 14°C 偏凉,建议把空调调到 26°C")。明确指令时 inferred 必须为 false。
+- 一次只提议一个 operation;params 里只能出现该 operation 在清单中列出的参数名,绝不附加别的键(想同时做两件事时,选最关键的一件,另一件写进 notes)。
 - 必须通过调用 emit_parse 工具来输出结果。"""
 
 

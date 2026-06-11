@@ -181,3 +181,27 @@ def test_claude_parser_context_failure_degrades(monkeypatch):
     except RuntimeError:
         pass
     assert "当前状态" not in captured["messages"][0]["content"]  # 降级:无上下文照常解析
+
+
+def test_coerce_parse_repairs_missing_recognized():
+    from gatekeeper.parser import coerce_parse
+    r = coerce_parse({"device_id": "light.a", "operation": "turn_on",
+                      "params": {}, "confidence": 0.9})
+    assert r.recognized is True
+
+
+def test_coerce_parse_missing_recognized_without_evidence_is_unrecognized():
+    from gatekeeper.parser import coerce_parse
+    assert coerce_parse({"confidence": 0.2}).recognized is False
+
+
+def test_coerce_parse_explicit_false_respected():
+    from gatekeeper.parser import coerce_parse
+    r = coerce_parse({"recognized": False, "device_id": "light.a", "operation": "turn_on"})
+    assert r.recognized is False
+
+
+def test_coerce_parse_candidates_count_as_evidence():
+    from gatekeeper.parser import coerce_parse
+    r = coerce_parse({"operation": "turn_off", "candidates": ["light.a", "light.b"]})
+    assert r.recognized is True

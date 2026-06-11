@@ -5,7 +5,7 @@ import json
 from openai import OpenAI
 
 from .models import ParseResult
-from .parser import _safe_context
+from .parser import _safe_context, coerce_parse
 from .prompts import SYSTEM_PROMPT, TOOL_DESC, TOOL_NAME, build_user_prompt, parse_schema
 from .registry import Registry
 
@@ -41,4 +41,4 @@ class LocalParser:
         if not getattr(message, "tool_calls", None):
             raise ValueError("本地模型未返回工具调用(可能不支持 tool calling)")
         call = message.tool_calls[0]
-        return ParseResult.model_validate(json.loads(call.function.arguments))
+        return coerce_parse(json.loads(call.function.arguments))
