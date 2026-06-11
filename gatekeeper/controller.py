@@ -73,6 +73,6 @@ class Controller:
                 lines.append(f"{i}) {area}{name}")
             return "你是说哪一个?" + " ".join(lines)
         if decision.stage == "inferred":
-            return (f"💡 {decision.reason}。确认执行"
+            return (f"💡 {decision.reason.rstrip('。')}。确认执行"
                     f"「{decision.operation} → {decision.device_id}」({dict(decision.params)})吗?")
         return f"确认执行「{decision.operation} → {decision.device_id}」?{decision.reason}"
