@@ -98,3 +98,26 @@ def test_default_client_has_bounded_timeout(monkeypatch):
     parser = LocalParser(Registry({}), "gemma4")
     assert parser.client.timeout is not None
     assert float(parser.client.timeout) <= 180
+
+
+def test_local_parser_injects_context():
+    from gatekeeper.registry import Registry
+
+    captured = {}
+
+    class _FakeCompletions:
+        def create(self, **kw):
+            captured.update(kw)
+            return _Resp({"recognized": False, "confidence": 0.0})
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    p = LocalParser(Registry({}), "gemma4", client=_FakeClient(),
+                    context_provider=lambda: "- light.a: on")
+    p.parse("有点暗")
+    user_msg = captured["messages"][1]["content"]
+    assert "- light.a: on" in user_msg
