@@ -52,6 +52,11 @@ class Engine:
         if problem:
             return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
 
+        if parse.inferred:
+            # 推断的意图永远到不了 allow:模型只有提议权,执行权在用户。
+            return Decision(verdict="confirm", stage="inferred",
+                            reason=parse.notes or "已根据当前状态推断该操作,请确认", **base)
+
         if parse.confidence < self.tau:
             return Decision(
                 verdict="confirm", stage="confidence",
