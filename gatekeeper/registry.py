@@ -42,11 +42,15 @@ class Registry:
         return bool(op and op.dangerous)
 
     def as_prompt_catalog(self) -> str:
-        """渲染给 parser 的设备清单。刻意不含 dangerous——模型不判断危险。"""
+        """渲染给 parser 的设备清单。刻意不含 dangerous——模型不判断危险。
+
+        按 device_id 排序:目录顺序必须跨进程/跨重启稳定,否则 temperature=0
+        也挡不住 prompt 漂移带来的解析波动(安全关卡不赌采样,也不赌枚举顺序)。
+        """
         lines: list[str] = []
-        for device_id, device in self._devices.items():
+        for device_id, device in sorted(self._devices.items()):
             lines.append(f"- {device_id}({device.name},区域:{device.area})")
-            for op_name, op in device.operations.items():
+            for op_name, op in sorted(device.operations.items()):
                 if not op.params:
                     lines.append(f"    · {op_name} 参数:无")
                     continue

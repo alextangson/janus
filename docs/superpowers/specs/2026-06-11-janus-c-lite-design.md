@@ -53,7 +53,7 @@ harness/deploy_janus.sh  # rsync gatekeeper/ 进组件目录 → docker cp 进 /
 3. `Engine(parser, reg, TAU)` → `Controller(engine, HassServiceCaller(hass))` → 存 `hass.data["janus"][entry_id]`;
 4. `async_forward_entry_setups(entry, ["conversation"])`。
 
-注册表快照在 setup 时构建一次;设备增删后用 HA 的"重新加载集成"刷新(实时订阅范围外)。
+**注册表每轮对话重建**(纯函数转换,毫秒级):真机验收证伪了"setup 时建一次快照"的原设计——HA 启动期 Janus 的 setup 会与其他集成(如 xiaomi_miot)的加载赛跑,拿到空/残缺目录,小模型对着空清单只会幻觉编 id。每轮重建顺带消灭了"改设备需重载集成"的限制;`async_setup_entry` 只存配置,重活全部推迟到对话时的 executor。
 
 ## 6. 对话(`conversation.py`)
 

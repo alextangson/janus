@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Janus — LLM 来源",
+        "data": {"backend": "后端"}
+      },
+      "claude": {
+        "title": "Anthropic API Key",
+        "data": {"api_key": "API Key"}
+      },
+      "local": {
+        "title": "本地模型(Ollama,OpenAI 兼容)",
+        "data": {"base_url": "Base URL", "model": "模型名"}
+      }
+    },
+    "error": {"invalid_key": "API Key 不能为空"}
+  }
+}
