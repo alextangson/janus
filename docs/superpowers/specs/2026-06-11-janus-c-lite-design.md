@@ -73,7 +73,7 @@ harness/deploy_janus.sh  # rsync gatekeeper/ 进组件目录 → docker cp 进 /
 
 ## 8. 错误处理
 
-- setup 阶段异常 → `ConfigEntryNotReady`(HA 标准重试);
+- setup 阶段无外部连接(注册表读取与 parser 构造都不联网),异常即配置/代码错误,交 HA 默认错误展示;`ConfigEntryNotReady` 不适用(没有可重试的外部依赖);
 - 对话阶段 parser/执行异常已被引擎/Controller fail-closed 兜底(reject/error 话术),Repl 不抛;
 - 执行适配器超时(`result(timeout=10)`)→ 异常冒给 Controller `_execute` 的 try/except → `❌ 失败:…`。
 
