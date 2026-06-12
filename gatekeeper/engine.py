@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .models import Decision, ParseResult
 from .queries import answer_query
@@ -13,7 +13,8 @@ class Parser(Protocol):
 
 
 class Engine:
-    def __init__(self, parser: Parser, registry: Registry, tau: float, state_provider=None):
+    def __init__(self, parser: Parser, registry: Registry, tau: float,
+                 state_provider: Callable[[], list] | None = None):
         self.parser = parser
         self.registry = registry
         self.tau = tau
