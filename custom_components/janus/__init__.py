@@ -74,4 +74,5 @@ def build_controller(hass, shapes: dict, data: dict):
 
         from .gatekeeper.parser import ClaudeParser
         parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]), context_provider=context_provider)
-    return Controller(Engine(parser, reg, TAU), HassServiceCaller(hass))
+    return Controller(Engine(parser, reg, TAU,
+                             state_provider=lambda: shapes["states"]), HassServiceCaller(hass))

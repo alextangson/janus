@@ -103,7 +103,8 @@ def main() -> None:
         parser, model_desc = (ClaudeParser(reg, MODEL, context_provider=context_provider),
                               f"claude/{MODEL}")
 
-    repl = Repl(Controller(Engine(parser, reg, TAU), client))
+    repl = Repl(Controller(Engine(parser, reg, TAU,
+                                  state_provider=lambda: client.fetch()[0]), client))
     print(f"gatekeeper REPL — {len(reg.device_ids())} 设备 | {model_desc} | τ={TAU} | 温度单位 {snap.temperature_unit}")
     print("输入指令开始;「设备」看清单,exit 退出。")
     while True:
