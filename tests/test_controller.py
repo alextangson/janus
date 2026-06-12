@@ -240,3 +240,12 @@ def test_inferred_prompt_shows_proposal_and_params():
     assert out.prompt.startswith("💡 室外 14°C 偏凉")
     assert "set_temperature → climate.ac" in out.prompt
     assert "'temperature': 26" in out.prompt
+
+
+def test_confirm_refuses_non_confirm_verdict():
+    ha = StubHA()
+    answer = Decision(verdict="answer", stage="query", device_id="lock.front_door",
+                      operation="unlock", reason="大门:已锁")
+    out = Controller(FakeEngine(answer), ha).confirm(answer, approved=True)
+    assert out.executed is False
+    assert ha.calls == []  # answer 决定绝不经 confirm 放行
