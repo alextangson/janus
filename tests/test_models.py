@@ -99,3 +99,14 @@ def test_decision_accepts_inferred_stage():
     from gatekeeper.models import Decision
     d = Decision(verdict="confirm", stage="inferred", reason="室外偏凉,建议调高空调")
     assert d.stage == "inferred"
+
+
+def test_parse_result_query_defaults_false():
+    from gatekeeper.models import ParseResult
+    assert ParseResult(recognized=True).query is False
+
+
+def test_decision_accepts_answer_verdict_and_query_stage():
+    from gatekeeper.models import Decision
+    d = Decision(verdict="answer", stage="query", reason="客厅空调:制冷")
+    assert d.verdict == "answer" and d.stage == "query"
