@@ -61,6 +61,8 @@ class Repl:
         if outcome.needs_confirmation:  # 含 choose 后链式危险确认
             self.pending = outcome
             return outcome.prompt or ""
+        if outcome.decision.verdict == "answer":
+            return f"🔎 {outcome.decision.reason}"
         return f"🚫 {outcome.decision.reason or '已取消'}"
 
 
