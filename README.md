@@ -8,21 +8,21 @@ Janus is a safety gatekeeper between large language models and [Home Assistant](
 
 ## What it feels like
 
-Real transcripts from a real home (Xiaomi devices, HA 2026.6, local 8B model):
+Real interactions (entity IDs simplified for privacy), HA 2026.6, local 8B model:
 
 ```text
 You:   打开空调                 (turn on the AC)
-Janus: ✅ 已执行:climate.lumi_….turn_on
+Janus: ✅ 已执行:climate.living_room_ac.turn_on
 
 You:   关掉卧室的灯             (turn off the bedroom light)
-Janus: 你是说哪一个?1) 卧室 Yeelight Screen Light Bar light
-                    2) 卧室 Yeelight Screen Light Bar Ambient Light
+Janus: 你是说哪一个?1) 卧室主灯
+                    2) 卧室氛围灯
 You:   2
-Janus: ✅ 已执行:light.yeelink_…_ambient_light.turn_off
+Janus: ✅ 已执行:light.bedroom_ambient.turn_off
 
 You:   我感觉有点冷             (I feel a bit cold)
 Janus: 💡 室外 12°C 偏凉,空调当前关闭,建议切换制热模式。
-       确认执行「set_hvac_mode → climate.…」({'hvac_mode': 'heat'})吗?
+       确认执行「set_hvac_mode → climate.living_room_ac」({'hvac_mode': 'heat'})吗?
 You:   好                      (OK)
 Janus: ✅ 已执行
 ```

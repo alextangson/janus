@@ -8,21 +8,21 @@ Janus 是大语言模型与 [Home Assistant](https://www.home-assistant.io/) 之
 
 ## 实际体验
 
-来自真实家庭的真实对话记录（小米设备，HA 2026.6，本地 8B 模型）：
+真实交互记录（entity ID 已做隐私简化），HA 2026.6,本地 8B 模型:
 
 ```text
 You:   打开空调                 (turn on the AC)
-Janus: ✅ 已执行:climate.lumi_….turn_on
+Janus: ✅ 已执行:climate.living_room_ac.turn_on
 
 You:   关掉卧室的灯             (turn off the bedroom light)
-Janus: 你是说哪一个?1) 卧室 Yeelight Screen Light Bar light
-                    2) 卧室 Yeelight Screen Light Bar Ambient Light
+Janus: 你是说哪一个?1) 卧室主灯
+                    2) 卧室氛围灯
 You:   2
-Janus: ✅ 已执行:light.yeelink_…_ambient_light.turn_off
+Janus: ✅ 已执行:light.bedroom_ambient.turn_off
 
 You:   我感觉有点冷             (I feel a bit cold)
 Janus: 💡 室外 12°C 偏凉,空调当前关闭,建议切换制热模式。
-       确认执行「set_hvac_mode → climate.…」({'hvac_mode': 'heat'})吗?
+       确认执行「set_hvac_mode → climate.living_room_ac」({'hvac_mode': 'heat'})吗?
 You:   好                      (OK)
 Janus: ✅ 已执行
 ```
