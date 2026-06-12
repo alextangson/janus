@@ -94,7 +94,7 @@ Janus runs fully local with an OpenAI-compatible endpoint. Tested end-to-end wit
 
 ## Project status & roadmap
 
-Working today: live registry curation/dedup (353 raw entities → real devices), disambiguation, intent inference with context, HA Assist integration, CLI. Roadmap: HACS listing, more domains (media_player/vacuum/camera), read-only queries, parameter follow-up questions, proactive suggestions.
+Working today: live registry curation/dedup (hundreds of raw entities collapse to the handful you can actually control), disambiguation, intent inference with context, HA Assist integration, CLI. Roadmap: HACS listing, more domains (media_player/vacuum/camera), read-only queries, parameter follow-up questions, proactive suggestions.
 
 ## License
 
