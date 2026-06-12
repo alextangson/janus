@@ -161,3 +161,11 @@ def test_devices_command_lists_catalog_without_llm():
 def test_devices_command_slash_alias():
     repl, _ = _mk(_allow())
     assert "主灯" in repl.feed("/devices")
+
+
+def test_answer_verdict_renders_magnifier():
+    repl, ha = _mk(Decision(verdict="answer", stage="query",
+                            reason="客厅空调:制冷,当前 24°C"))
+    assert repl.feed("空调几度") == "🔎 客厅空调:制冷,当前 24°C"
+    assert ha.calls == []
+    assert repl.pending is None

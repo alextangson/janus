@@ -205,3 +205,8 @@ def test_coerce_parse_candidates_count_as_evidence():
     from gatekeeper.parser import coerce_parse
     r = coerce_parse({"operation": "turn_off", "candidates": ["light.a", "light.b"]})
     assert r.recognized is True
+
+
+def test_system_prompt_teaches_query():
+    from gatekeeper.prompts import SYSTEM_PROMPT
+    assert "query" in SYSTEM_PROMPT

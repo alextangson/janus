@@ -217,3 +217,42 @@ def test_inferred_params_still_pass_feasibility_first():
 def test_explicit_command_unaffected():
     eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on")), _amb_registry(), tau=0.7)
     assert eng.decide("开灯").stage == "passed"
+
+
+def test_query_returns_answer_from_state_provider():
+    states = [{"entity_id": "light.a", "state": "on", "attributes": {}}]
+    eng = Engine(FakeParser(_pr(device_id="light.a", query=True)),
+                 _amb_registry(), tau=0.7, state_provider=lambda: states)
+    d = eng.decide("卧室灯开着吗")
+    assert (d.verdict, d.stage) == ("answer", "query")
+    assert "主灯:开" in d.reason
+
+
+def test_query_without_state_provider_degrades():
+    eng = Engine(FakeParser(_pr(device_id="light.a", query=True)), _amb_registry(), tau=0.7)
+    d = eng.decide("灯开着吗")
+    assert (d.verdict, d.stage) == ("answer", "query")
+    assert "没查到" in d.reason
+
+
+def test_query_state_provider_exception_degrades():
+    def boom():
+        raise OSError("HA down")
+    eng = Engine(FakeParser(_pr(device_id="light.a", query=True)),
+                 _amb_registry(), tau=0.7, state_provider=boom)
+    d = eng.decide("灯开着吗")
+    assert d.verdict == "answer" and "没查到" in d.reason
+
+
+def test_query_never_executes_dangerous():
+    states = [{"entity_id": "lock.door", "state": "locked", "attributes": {}}]
+    eng = Engine(FakeParser(_pr(device_id="lock.door", operation="unlock", query=True)),
+                 _amb_registry(), tau=0.7, state_provider=lambda: states)
+    d = eng.decide("门锁着吗")
+    assert d.verdict == "answer"
+
+
+def test_non_query_unaffected():
+    eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on")),
+                 _amb_registry(), tau=0.7, state_provider=lambda: [])
+    assert eng.decide("开灯").stage == "passed"

@@ -34,6 +34,10 @@ class Controller:
         return Outcome(decision=decision, executed=False)  # reject
 
     def confirm(self, decision: Decision, approved: bool) -> Outcome:
+        # 只有真正待确认的 verdict 能被确认执行;answer/reject 等绝不经此放行(纵深防御)。
+        if decision.verdict != "confirm":
+            return Outcome(decision=decision, executed=False,
+                           error=f"该决定无需确认执行(verdict={decision.verdict})")
         if decision.stage == "ambiguous":
             return Outcome(decision=decision, executed=False,
                            error="歧义未消解,请先通过 choose() 选择设备")

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .models import Decision, ParseResult
+from .queries import answer_query
 from .registry import Registry
 from .validator import check_feasibility
 
@@ -12,10 +13,12 @@ class Parser(Protocol):
 
 
 class Engine:
-    def __init__(self, parser: Parser, registry: Registry, tau: float):
+    def __init__(self, parser: Parser, registry: Registry, tau: float,
+                 state_provider: Callable[[], list] | None = None):
         self.parser = parser
         self.registry = registry
         self.tau = tau
+        self.state_provider = state_provider
 
     def decide(self, instruction: str) -> Decision:
         try:
@@ -33,6 +36,15 @@ class Engine:
 
         if not parse.recognized:
             return Decision(verdict="reject", stage="parse", reason="没识别出对应的设备或操作", **base)
+
+        if parse.query:
+            try:
+                states = self.state_provider() if self.state_provider else []
+            except Exception:
+                states = []  # 查询只读,读不到状态不危险,优雅降级
+            return Decision(verdict="answer", stage="query",
+                            reason=answer_query(parse.device_id, parse.candidates,
+                                                states, self.registry), **base)
 
         if parse.candidates:
             valid = [c for c in parse.candidates
