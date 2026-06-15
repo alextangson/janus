@@ -40,8 +40,8 @@ class ParseResult(BaseModel):
     notes: str = ""
 
 
-Verdict = Literal["allow", "confirm", "reject", "answer"]
-Stage = Literal["parse", "ambiguous", "feasibility", "inferred", "confidence", "safety", "passed", "error", "query"]
+Verdict = Literal["allow", "confirm", "reject", "answer", "ask"]
+Stage = Literal["parse", "ambiguous", "feasibility", "inferred", "confidence", "safety", "passed", "error", "query", "param"]
 
 
 class Decision(BaseModel):
@@ -51,5 +51,6 @@ class Decision(BaseModel):
     operation: str | None = None
     params: dict[str, bool | int | str] = Field(default_factory=dict)
     candidates: list[str] = Field(default_factory=list)
+    missing_param: str | None = None
     confidence: float = 0.0
     reason: str = ""
