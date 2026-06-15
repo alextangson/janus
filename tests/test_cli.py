@@ -1,6 +1,6 @@
-from gatekeeper.cli import Repl
+from gatekeeper.cli import Repl, coerce_param
 from gatekeeper.controller import Controller
-from gatekeeper.models import Decision, Device, OperationSpec
+from gatekeeper.models import Decision, Device, OperationSpec, ParamSpec
 from gatekeeper.registry import Registry
 
 
@@ -169,3 +169,32 @@ def test_answer_verdict_renders_magnifier():
     assert repl.feed("空调几度") == "🔎 客厅空调:制冷,当前 24°C"
     assert ha.calls == []
     assert repl.pending is None
+
+
+# ---------------------------------------------------------------------------
+# Task 3: coerce_param —— 反问回答 → 值
+# ---------------------------------------------------------------------------
+
+def test_coerce_int_extracts_digits():
+    spec = ParamSpec(type="int", min=16, max=30, required=True)
+    assert coerce_param("26", spec) == 26
+    assert coerce_param("调到26度", spec) == 26
+    assert coerce_param("大概28吧", spec) == 28
+
+
+def test_coerce_int_none_when_no_digits():
+    spec = ParamSpec(type="int", min=16, max=30, required=True)
+    assert coerce_param("一半", spec) is None
+    assert coerce_param("随便", spec) is None
+
+
+def test_coerce_enum_matches_english_and_chinese():
+    spec = ParamSpec(type="enum", enum=["cool", "heat", "fan", "auto"], required=True)
+    assert coerce_param("heat", spec) == "heat"
+    assert coerce_param("制热", spec) == "heat"
+    assert coerce_param("调成制冷", spec) == "cool"
+
+
+def test_coerce_enum_none_when_no_match():
+    spec = ParamSpec(type="enum", enum=["cool", "heat"], required=True)
+    assert coerce_param("乱七八糟", spec) is None

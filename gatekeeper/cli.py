@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+import re
+
 from .controller import Outcome
+from .models import ParamSpec
+from .queries import _HVAC_ZH
 
 _YES = {"y", "yes", "是", "好"}
 _NO = {"n", "no", "否", "取消"}
 _DEVICES = {"设备", "/devices"}
+
+
+def coerce_param(reply: str, spec: ParamSpec) -> int | str | None:
+    """把用户对反问的回答确定性转成参数值;转不出 → None(由调用方重问)。不调模型。"""
+    if spec.type == "int":
+        m = re.search(r"-?\d+", reply)
+        return int(m.group()) if m else None
+    if spec.type == "enum":
+        for v in (spec.enum or []):
+            if v in reply or _HVAC_ZH.get(v, "\0") in reply:
+                return v
+    return None
 
 
 class Repl:
