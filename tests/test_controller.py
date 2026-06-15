@@ -1,5 +1,5 @@
 from gatekeeper.controller import Controller, Outcome
-from gatekeeper.models import Decision, Device, OperationSpec
+from gatekeeper.models import Decision, Device, OperationSpec, ParamSpec
 from gatekeeper.registry import Registry
 
 
@@ -249,3 +249,87 @@ def test_confirm_refuses_non_confirm_verdict():
     out = Controller(FakeEngine(answer), ha).confirm(answer, approved=True)
     assert out.executed is False
     assert ha.calls == []  # answer 决定绝不经 confirm 放行
+
+
+# ---------------------------------------------------------------------------
+# Task 4: ask / provide_param / param 话术
+# ---------------------------------------------------------------------------
+
+def _climate_registry():
+    return Registry({
+        "climate.ac": Device(name="客厅空调", type="climate", area="客厅", operations={
+            "set_temperature": OperationSpec(
+                params={"temperature": ParamSpec(type="int", min=16, max=30, unit="°C", required=True)}),
+        }),
+    })
+
+
+def _ask_decision(**kw):
+    base = {"verdict": "ask", "stage": "param", "device_id": "climate.ac",
+            "operation": "set_temperature", "params": {}, "missing_param": "temperature"}
+    base.update(kw)
+    return Decision(**base)
+
+
+def test_handle_ask_returns_needs_param_and_prompt():
+    eng = FakeResolveEngine(_ask_decision(), registry=_climate_registry())
+    out = Controller(eng, StubHA()).handle("调一下空调温度")
+    assert out.needs_param is True
+    assert out.executed is False
+    assert "客厅空调" in out.prompt and "温度" in out.prompt and "16" in out.prompt
+
+
+def test_provide_param_in_range_executes():
+    ha = StubHA()
+    resolved = Decision(verdict="allow", stage="passed", device_id="climate.ac",
+                        operation="set_temperature", params={"temperature": 26})
+    eng = FakeResolveEngine(_ask_decision(), resolved=resolved, registry=_climate_registry())
+    out = Controller(eng, ha).provide_param(_ask_decision(), 26)
+    assert out.executed is True
+    assert eng.resolved_calls == [("climate.ac", "set_temperature", {"temperature": 26})]
+    assert ha.calls == [("climate", "set_temperature", "climate.ac", {"temperature": 26})]
+
+
+def test_provide_param_out_of_range_rejects():
+    ha = StubHA()
+    resolved = Decision(verdict="reject", stage="feasibility", device_id="climate.ac",
+                        operation="set_temperature", params={"temperature": 50},
+                        reason="temperature 50°C 超出范围(16–30°C)")
+    eng = FakeResolveEngine(_ask_decision(), resolved=resolved, registry=_climate_registry())
+    out = Controller(eng, ha).provide_param(_ask_decision(), 50)
+    assert out.executed is False
+    assert ha.calls == []
+
+
+def test_provide_param_dangerous_chains_to_confirm():
+    ha = StubHA()
+    resolved = Decision(verdict="confirm", stage="safety", device_id="cover.gate",
+                        operation="set_position", params={"position": 80},
+                        reason="该操作敏感/不可逆,执行前需确认")
+    ask = _ask_decision(device_id="cover.gate", operation="set_position", missing_param="position")
+    eng = FakeResolveEngine(ask, resolved=resolved)
+    out = Controller(eng, ha).provide_param(ask, 80)
+    assert out.needs_confirmation is True
+    assert out.executed is False
+    assert ha.calls == []
+
+
+def test_provide_param_refuses_non_ask_decision():
+    eng = FakeResolveEngine(_decision("allow"))
+    out = Controller(eng, StubHA()).provide_param(_decision("allow"), 26)
+    assert out.executed is False
+    assert out.error is not None
+
+
+def test_param_prompt_renders_enum_options():
+    reg = Registry({
+        "climate.ac": Device(name="客厅空调", type="climate", area="客厅", operations={
+            "set_mode": OperationSpec(params={"mode": ParamSpec(
+                type="enum", enum=["cool", "heat", "fan", "auto"], required=True)}),
+        }),
+    })
+    eng = FakeResolveEngine(
+        _ask_decision(operation="set_mode", missing_param="mode"), registry=reg)
+    out = Controller(eng, StubHA()).handle("换个模式")
+    assert "哪种" in out.prompt
+    assert "制冷" in out.prompt and "制热" in out.prompt

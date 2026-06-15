@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import Decision
+from .queries import _HVAC_ZH
+
+_PARAM_ZH = {"temperature": "温度", "position": "位置", "percentage": "百分比",
+             "hvac_mode": "模式", "mode": "模式", "brightness_pct": "亮度"}
 
 
 @dataclass
@@ -13,6 +17,7 @@ class Outcome:
     needs_confirmation: bool = False
     prompt: str | None = None
     choices: list[str] | None = None
+    needs_param: bool = False
 
 
 class Controller:
@@ -24,14 +29,19 @@ class Controller:
         self.ha_client = ha_client
 
     def handle(self, instruction: str) -> Outcome:
-        decision = self.engine.decide(instruction)
+        return self._dispatch(self.engine.decide(instruction))
+
+    def _dispatch(self, decision: Decision) -> Outcome:
+        """决定 → Outcome 的唯一映射:allow 执行 / confirm 待确认 / ask 待补参 / 其余不动。"""
         if decision.verdict == "allow":
             return self._execute(decision)
         if decision.verdict == "confirm":
-            return Outcome(decision=decision, executed=False,
-                           needs_confirmation=True, prompt=self._prompt(decision),
-                           choices=decision.candidates or None)
-        return Outcome(decision=decision, executed=False)  # reject
+            return Outcome(decision=decision, executed=False, needs_confirmation=True,
+                           prompt=self._prompt(decision), choices=decision.candidates or None)
+        if decision.verdict == "ask":
+            return Outcome(decision=decision, executed=False, needs_param=True,
+                           prompt=self._prompt(decision))
+        return Outcome(decision=decision, executed=False)  # reject / answer
 
     def confirm(self, decision: Decision, approved: bool) -> Outcome:
         # 只有真正待确认的 verdict 能被确认执行;answer/reject 等绝不经此放行(纵深防御)。
@@ -46,18 +56,22 @@ class Controller:
         return Outcome(decision=decision, executed=False)  # 用户否决
 
     def choose(self, decision: Decision, device_id: str) -> Outcome:
-        """歧义确认后的选择:校验在候选内 → 无 LLM 复审 → 执行/再确认。"""
+        """歧义确认后的选择:校验在候选内 → 无 LLM 复审 → 执行/再确认/补参。"""
         if device_id not in decision.candidates:
             return Outcome(decision=decision, executed=False,
                            error=f"所选设备不在候选内:{device_id}")
         resolved = self.engine.decide_resolved(device_id, decision.operation,
                                                dict(decision.params))
-        if resolved.verdict == "allow":
-            return self._execute(resolved)
-        if resolved.verdict == "confirm":
-            return Outcome(decision=resolved, executed=False,
-                           needs_confirmation=True, prompt=self._prompt(resolved))
-        return Outcome(decision=resolved, executed=False)
+        return self._dispatch(resolved)
+
+    def provide_param(self, decision: Decision, value) -> Outcome:
+        """反问后接住用户给的值:并入 params → 无 LLM 复审(同 validator 复查范围/危险)→ 执行/再确认。"""
+        if decision.verdict != "ask":
+            return Outcome(decision=decision, executed=False,
+                           error=f"该决定无需补参数(verdict={decision.verdict})")
+        params = {**dict(decision.params), decision.missing_param: value}
+        resolved = self.engine.decide_resolved(decision.device_id, decision.operation, params)
+        return self._dispatch(resolved)
 
     def _execute(self, decision: Decision) -> Outcome:
         try:
@@ -79,4 +93,14 @@ class Controller:
         if decision.stage == "inferred":
             return (f"💡 {decision.reason.rstrip('。')}。确认执行"
                     f"「{decision.operation} → {decision.device_id}」({dict(decision.params)})吗?")
+        if decision.stage == "param":
+            device = self.engine.registry.get(decision.device_id)
+            spec = device.operations[decision.operation].params[decision.missing_param]
+            label = _PARAM_ZH.get(decision.missing_param, decision.missing_param)
+            if spec.type == "enum":
+                opts = "/".join(_HVAC_ZH.get(v, v) for v in (spec.enum or []))
+                return f"要把「{device.name}」的{label}设成哪种?({opts})"
+            if spec.min is not None and spec.max is not None:
+                return f"要把「{device.name}」的{label}设成多少?({spec.min}–{spec.max}{spec.unit or ''})"
+            return f"要把「{device.name}」的{label}设成多少?"
         return f"确认执行「{decision.operation} → {decision.device_id}」?{decision.reason}"
