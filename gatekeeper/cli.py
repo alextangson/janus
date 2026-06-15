@@ -60,6 +60,18 @@ class Repl:
                 chosen = pending.choices[int(line) - 1]
                 return self._render(self.controller.choose(pending.decision, chosen))
             return pending.prompt or ""  # 没听懂 → 重示
+        if pending.needs_param:  # 缺参数:等一个值
+            if line.lower() in _NO:
+                self.pending = None
+                return "已取消"
+            dec = pending.decision
+            device = self.controller.engine.registry.get(dec.device_id)
+            spec = device.operations[dec.operation].params[dec.missing_param]
+            value = coerce_param(line, spec)
+            if value is None:
+                return pending.prompt or ""  # 没听懂 → 重示
+            self.pending = None
+            return self._render(self.controller.provide_param(dec, value))
         if line.lower() in _YES:  # 是/否确认
             self.pending = None
             return self._render(self.controller.confirm(pending.decision, approved=True))
@@ -74,7 +86,7 @@ class Repl:
             return f"✅ 已执行:{d.device_id}.{d.operation}"
         if outcome.error:
             return f"❌ 失败:{outcome.error}"
-        if outcome.needs_confirmation:  # 含 choose 后链式危险确认
+        if outcome.needs_confirmation or outcome.needs_param:  # 含链式危险确认 / 缺参数反问
             self.pending = outcome
             return outcome.prompt or ""
         if outcome.decision.verdict == "answer":

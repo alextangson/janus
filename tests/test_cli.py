@@ -198,3 +198,69 @@ def test_coerce_enum_matches_english_and_chinese():
 def test_coerce_enum_none_when_no_match():
     spec = ParamSpec(type="enum", enum=["cool", "heat"], required=True)
     assert coerce_param("乱七八糟", spec) is None
+
+
+# ---------------------------------------------------------------------------
+# Task 5: 缺参数反问的 pending 分支
+# ---------------------------------------------------------------------------
+
+def _climate_reg():
+    return Registry({
+        "climate.ac": Device(name="客厅空调", type="climate", area="客厅", operations={
+            "set_temperature": OperationSpec(
+                params={"temperature": ParamSpec(type="int", min=16, max=30, unit="°C", required=True)}),
+        }),
+    })
+
+
+def _ask():
+    return Decision(verdict="ask", stage="param", device_id="climate.ac",
+                    operation="set_temperature", params={}, missing_param="temperature",
+                    reason="缺少必填参数,需向用户询问")
+
+
+def _mk_ask(resolved):
+    ha = StubHA()
+    eng = FakeEngine(_ask(), resolved=resolved, registry=_climate_reg())
+    return Repl(Controller(eng, ha)), ha
+
+
+def test_ask_then_value_executes():
+    resolved = Decision(verdict="allow", stage="passed", device_id="climate.ac",
+                        operation="set_temperature", params={"temperature": 26})
+    repl, ha = _mk_ask(resolved)
+    prompt = repl.feed("调一下空调温度")
+    assert "客厅空调" in prompt and "温度" in prompt
+    assert repl.pending is not None
+    assert repl.feed("26") == "✅ 已执行:climate.ac.set_temperature"
+    assert ha.calls == [("climate", "set_temperature", "climate.ac", {"temperature": 26})]
+    assert repl.pending is None
+
+
+def test_ask_unparseable_value_reprompts_keeps_pending():
+    repl, ha = _mk_ask(resolved=None)
+    prompt = repl.feed("调一下空调温度")
+    assert repl.feed("一半") == prompt      # 抽不出数字 → 重示
+    assert repl.feed("随便") == prompt
+    assert repl.pending is not None
+    assert ha.calls == []
+
+
+def test_ask_cancel_clears_pending():
+    repl, ha = _mk_ask(resolved=None)
+    repl.feed("调一下空调温度")
+    assert repl.feed("取消") == "已取消"
+    assert repl.pending is None
+    assert ha.calls == []
+
+
+def test_ask_value_out_of_range_renders_reject():
+    resolved = Decision(verdict="reject", stage="feasibility", device_id="climate.ac",
+                        operation="set_temperature", params={"temperature": 50},
+                        reason="temperature 50°C 超出范围(16–30°C)")
+    repl, ha = _mk_ask(resolved)
+    repl.feed("调一下空调温度")
+    out = repl.feed("50")
+    assert out.startswith("🚫") and "超出范围" in out
+    assert repl.pending is None
+    assert ha.calls == []
