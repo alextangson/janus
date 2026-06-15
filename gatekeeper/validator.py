@@ -37,3 +37,18 @@ def check_feasibility(parse: ParseResult, registry: Registry) -> str | None:
                 return f"{pname} 取值非法:{value}"
 
     return None
+
+
+def missing_required_param(parse: ParseResult, registry: Registry) -> str | None:
+    """设备+操作均有效、且唯一缺的是某必填参数时,返回该参数名,否则 None。
+    设备/操作不存在 → None(交还给真正的 reject)。"""
+    device = registry.get(parse.device_id)
+    if device is None:
+        return None
+    op = device.operations.get(parse.operation)
+    if op is None:
+        return None
+    for pname, pspec in op.params.items():
+        if pspec.required and pname not in parse.params:
+            return pname
+    return None

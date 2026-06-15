@@ -256,3 +256,44 @@ def test_non_query_unaffected():
     eng = Engine(FakeParser(_pr(device_id="light.a", operation="turn_on")),
                  _amb_registry(), tau=0.7, state_provider=lambda: [])
     assert eng.decide("开灯").stage == "passed"
+
+
+def test_missing_required_int_asks(registry):
+    eng = _engine(registry, _pr(device_id="climate.living_room", operation="set_temperature"))
+    d = eng.decide("调一下空调温度")
+    assert (d.verdict, d.stage) == ("ask", "param")
+    assert d.missing_param == "temperature"
+    assert d.device_id == "climate.living_room"
+
+
+def test_missing_required_enum_asks(registry):
+    eng = _engine(registry, _pr(device_id="climate.living_room", operation="set_mode"))
+    d = eng.decide("把空调换个模式")
+    assert (d.verdict, d.stage, d.missing_param) == ("ask", "param", "mode")
+
+
+def test_missing_required_position_asks(registry):
+    eng = _engine(registry, _pr(device_id="cover.living_room_curtain", operation="set_position"))
+    d = eng.decide("窗帘调一下")
+    assert (d.verdict, d.stage, d.missing_param) == ("ask", "param", "position")
+
+
+def test_invalid_op_with_missing_param_still_rejects(registry):
+    # 灯不支持 set_temperature → 是真不可行,而非缺参数 → 仍 reject
+    eng = _engine(registry, _pr(device_id="light.living_room", operation="set_temperature"))
+    d = eng.decide("灯调到几度")
+    assert (d.verdict, d.stage) == ("reject", "feasibility")
+    assert d.missing_param is None
+
+
+def test_present_required_param_unaffected(registry):
+    eng = _engine(registry, _pr(device_id="climate.living_room", operation="set_temperature",
+                                params={"temperature": 24}))
+    d = eng.decide("空调24度")
+    assert (d.verdict, d.stage) == ("allow", "passed")
+
+
+def test_decide_resolved_missing_required_asks(registry):
+    # 消歧后链式缺参:choose → decide_resolved 也应反问
+    d = _engine(registry, _pr()).decide_resolved("climate.living_room", "set_temperature", {})
+    assert (d.verdict, d.stage, d.missing_param) == ("ask", "param", "temperature")

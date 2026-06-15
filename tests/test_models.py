@@ -110,3 +110,16 @@ def test_decision_accepts_answer_verdict_and_query_stage():
     from gatekeeper.models import Decision
     d = Decision(verdict="answer", stage="query", reason="客厅空调:制冷")
     assert d.verdict == "answer" and d.stage == "query"
+
+
+def test_decision_supports_ask_param_with_missing_param():
+    d = Decision(verdict="ask", stage="param", device_id="climate.living_room",
+                 operation="set_temperature", missing_param="temperature")
+    assert d.verdict == "ask"
+    assert d.stage == "param"
+    assert d.missing_param == "temperature"
+
+
+def test_decision_missing_param_defaults_none():
+    d = Decision(verdict="allow", stage="passed")
+    assert d.missing_param is None

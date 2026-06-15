@@ -5,7 +5,7 @@ from typing import Callable, Protocol
 from .models import Decision, ParseResult
 from .queries import answer_query
 from .registry import Registry
-from .validator import check_feasibility
+from .validator import check_feasibility, missing_required_param
 
 
 class Parser(Protocol):
@@ -19,6 +19,17 @@ class Engine:
         self.registry = registry
         self.tau = tau
         self.state_provider = state_provider
+
+    def _feasibility_decision(self, parse: ParseResult, base: dict) -> Decision | None:
+        """可行性关卡:无问题→None;唯一问题是缺必填参数→ask;其余→reject。"""
+        problem = check_feasibility(parse, self.registry)
+        if not problem:
+            return None
+        missing = missing_required_param(parse, self.registry)
+        if missing is not None:
+            return Decision(verdict="ask", stage="param", missing_param=missing,
+                            reason="缺少必填参数,需向用户询问", **base)
+        return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
 
     def decide(self, instruction: str) -> Decision:
         try:
@@ -60,9 +71,9 @@ class Engine:
             parse = parse.model_copy(update={"device_id": valid[0], "candidates": []})
             base["device_id"] = valid[0]
 
-        problem = check_feasibility(parse, self.registry)
-        if problem:
-            return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
+        fd = self._feasibility_decision(parse, base)
+        if fd is not None:
+            return fd
 
         if parse.inferred:
             # 推断的意图永远到不了 allow:模型只有提议权,执行权在用户。
@@ -87,9 +98,9 @@ class Engine:
                             params=params or {}, confidence=1.0)
         base = dict(device_id=device_id, operation=operation,
                     params=parse.params, confidence=1.0)
-        problem = check_feasibility(parse, self.registry)
-        if problem:
-            return Decision(verdict="reject", stage="feasibility", reason=problem, **base)
+        fd = self._feasibility_decision(parse, base)
+        if fd is not None:
+            return fd
         if self.registry.is_dangerous(device_id, operation):
             return Decision(verdict="confirm", stage="safety",
                             reason="该操作敏感/不可逆,执行前需确认", **base)
