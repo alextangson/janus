@@ -52,3 +52,8 @@ class DecisionAudit:
     def schedule_save(self) -> None:
         """loop 线程调用:去抖落盘,避免每轮写。"""
         self._store.async_delay_save(self.snapshot, 10)
+
+    async def async_flush(self) -> None:
+        """卸载/重载前立即落盘:async_save 即时写并清掉待触发的去抖句柄,
+        既防 10s 窗口内重载丢记录,也防旧定时器晚触发覆盖重载后的新快照。"""
+        await self._store.async_save(self.snapshot())

@@ -32,7 +32,10 @@ async def async_setup_entry(hass, entry) -> bool:
 async def async_unload_entry(hass, entry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        audit = data.get("audit") if data else None
+        if audit is not None:
+            await audit.async_flush()  # 重载前即时落盘,别丢去抖窗口内的记录
     return ok
 
 
