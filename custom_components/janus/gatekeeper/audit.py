@@ -51,3 +51,20 @@ def summary(rec: DecisionRecord) -> str:
     op = rec.operation or ""
     reason = rec.reason[:40] if rec.stage in _SAFE_REASON_STAGES else ""
     return f"[janus] {rec.verdict}/{rec.stage} {dev} {op} {tail} {reason}".rstrip()
+
+
+def display_status(row: dict) -> str:
+    """决策行 → 展示状态(前端据此映射图标/颜色/中文)。纯函数。
+    row 是 DecisionRecord 落盘后的 dict(asdict + ts)。"""
+    if row.get("error"):
+        return "failed"
+    if row.get("executed"):
+        return "executed"
+    verdict = row.get("verdict")
+    if verdict == "reject":
+        return "rejected"
+    if verdict == "answer":
+        return "answered"
+    if row.get("pending_after"):
+        return "pending"
+    return "cancelled"

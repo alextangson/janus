@@ -46,6 +46,26 @@ def test_summary_marks_failure_and_reject():
     assert "reject/parse" in summary(rej) and "·" in summary(rej)
 
 
+from gatekeeper.audit import display_status
+
+
+def _row(**kw):
+    base = {"verdict": "allow", "executed": False, "error": None, "pending_after": False}
+    base.update(kw)
+    return base
+
+
+def test_display_status_all_branches():
+    assert display_status(_row(executed=True)) == "executed"
+    assert display_status(_row(error="HA 500")) == "failed"
+    assert display_status(_row(error="x", executed=True)) == "failed"   # error 优先
+    assert display_status(_row(verdict="reject")) == "rejected"
+    assert display_status(_row(verdict="answer")) == "answered"
+    assert display_status(_row(verdict="confirm", pending_after=True)) == "pending"
+    assert display_status(_row(verdict="ask", pending_after=True)) == "pending"
+    assert display_status(_row(verdict="confirm", pending_after=False)) == "cancelled"
+
+
 def test_summary_omits_reason_on_query_and_inferred():
     # query 的 reason 是渲染出的实时设备状态(含名字/开关),绝不能进 INFO 日志
     q = build_record("前门锁着吗", _outcome("answer", stage="query", device_id="lock.front",
