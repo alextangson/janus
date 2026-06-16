@@ -4,5 +4,4 @@ __pycache__/
 .env
 .pytest_cache/
 *.egg-info/
-custom_components/janus/gatekeeper/
 docs/superpowers/

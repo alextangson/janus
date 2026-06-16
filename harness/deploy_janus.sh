@@ -3,9 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-rm -rf custom_components/janus/gatekeeper
-cp -R gatekeeper custom_components/janus/gatekeeper
-find custom_components/janus -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+bash harness/vendor.sh
 
 docker exec homeassistant mkdir -p /config/custom_components
 docker exec homeassistant rm -rf /config/custom_components/janus
