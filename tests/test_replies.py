@@ -28,3 +28,29 @@ def test_extract_int_arabic_first_then_zh():
     assert extract_int("26度") == 26
     assert extract_int("二十六") == 26
     assert extract_int("abc") is None
+
+
+from gatekeeper.models import ParamSpec
+from gatekeeper.replies import coerce_param
+
+
+def test_coerce_int_arabic_and_chinese():
+    spec = ParamSpec(type="int", min=16, max=30, unit="°C", required=True)
+    assert coerce_param("26", spec) == 26
+    assert coerce_param("调到26度", spec) == 26
+    assert coerce_param("二十六", spec) == 26
+    assert coerce_param("设到二十六度", spec) == 26
+
+
+def test_coerce_int_none_when_unparseable():
+    spec = ParamSpec(type="int", min=16, max=30, required=True)
+    assert coerce_param("随便", spec) is None
+    assert coerce_param("一半", spec) is None      # 分数语义不支持(范围外)
+
+
+def test_coerce_enum_english_and_chinese():
+    spec = ParamSpec(type="enum", enum=["cool", "heat", "fan", "auto"], required=True)
+    assert coerce_param("heat", spec) == "heat"
+    assert coerce_param("制热", spec) == "heat"
+    assert coerce_param("调成制冷", spec) == "cool"
+    assert coerce_param("乱七八糟", spec) is None

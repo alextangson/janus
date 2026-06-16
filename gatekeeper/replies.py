@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import re
 
+from .models import ParamSpec
+from .queries import _HVAC_ZH
+
 _ZH_DIGIT = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 _ZH_NUMERAL_RE = re.compile(r"[零〇一二两三四五六七八九十百]+")
@@ -49,3 +52,14 @@ def extract_int(text: str) -> int | None:
     """阿拉伯优先,没有再中文数字。"""
     m = re.search(r"-?\d+", text or "")
     return int(m.group()) if m else zh_to_int(text or "")
+
+
+def coerce_param(reply: str, spec: ParamSpec) -> int | str | None:
+    """把用户对反问的回答确定性转成参数值;转不出 → None(由调用方重问)。不调模型。"""
+    if spec.type == "int":
+        return extract_int(reply)
+    if spec.type == "enum":
+        for v in (spec.enum or []):
+            if v in reply or _HVAC_ZH.get(v, "\0") in reply:
+                return v
+    return None
