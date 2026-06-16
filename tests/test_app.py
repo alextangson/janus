@@ -197,3 +197,17 @@ def test_reply_wrong_id_preserves_pending_then_correct_id_works():
                   json={"conversation_id": cid, "kind": "confirm", "value": True})
     assert good.json()["status"] == "executed"  # 真 pending 仍可用
     assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_confirm_expires_at_is_wallclock_epoch():
+    # expires_at 必须是墙钟 epoch 秒(客户端能算倒计时),不是 monotonic
+    import time as _t
+
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, _ = _exec_app(dec)
+    before = _t.time()
+    body = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    exp = body["expires_at"]
+    assert exp is not None
+    assert before <= exp <= before + 200        # 默认 TTL 120s;monotonic(开机秒)会落在此区间外

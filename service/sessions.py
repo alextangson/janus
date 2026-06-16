@@ -23,9 +23,11 @@ class ConversationStore:
     """内存会话存储:每 conversation 一个 Session + pending_id 生命周期 + 幂等缓存。
     单盒子 v1;换 Redis 是后续。now 可注入以便测试。"""
 
-    def __init__(self, now: Callable[[], float] = time.monotonic,
+    def __init__(self, now: Callable[[], float] = time.time,
                  pending_ttl: float = 120.0, idempotency_ttl: float = 300.0,
                  max_sessions: int = 1000):
+        # now=time.time(墙钟 epoch 秒):pending_expires_at 要给客户端算倒计时,需墙钟而非
+        # monotonic(执行死线另用 time.monotonic,见 app.py)。TTL 比较用墙钟差值,标准做法。
         self._now = now
         self._pending_ttl = pending_ttl
         self._idempotency_ttl = idempotency_ttl

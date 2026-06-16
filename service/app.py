@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import time
 import uuid
 
@@ -50,7 +51,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
 
     def require_auth(authorization: str | None = Header(default=None)) -> None:
         expected = f"Bearer {api_token}"
-        if authorization != expected:
+        if not authorization or not hmac.compare_digest(authorization, expected):
             raise HTTPException(status_code=401, detail="unauthorized")
 
     def _fresh_controller(deadline: float | None = None):
@@ -93,11 +94,13 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                         timeout=request_timeout)
                 except (asyncio.TimeoutError, DeadlineExceeded):
                     store.clear_pending(st)
+                    st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
                     return outcome_to_dto(_error_outcome("request timed out"), conversation_id=cid,
                                          pending_id=None, expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
                 except Exception as exc:
                     store.clear_pending(st)
+                    st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
                     return outcome_to_dto(_error_outcome(str(exc)), conversation_id=cid,
                                          pending_id=None, expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
@@ -126,6 +129,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                         timeout=request_timeout)
                 except (asyncio.TimeoutError, DeadlineExceeded):
                     store.clear_pending(st)
+                    st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
                     return outcome_to_dto(_error_outcome("request timed out"),
                                          conversation_id=req.conversation_id, pending_id=None,
                                          expires_at=None, request_id=request_id,
@@ -134,6 +138,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     raise HTTPException(status_code=400, detail=str(exc))
                 except Exception as exc:
                     store.clear_pending(st)
+                    st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
                     return outcome_to_dto(_error_outcome(str(exc)),
                                          conversation_id=req.conversation_id, pending_id=None,
                                          expires_at=None, request_id=request_id,
