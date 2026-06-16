@@ -23,6 +23,12 @@ class TurnReq(BaseModel):
     idempotency_key: str | None = None
 
 
+class ReplyReq(BaseModel):
+    conversation_id: str
+    kind: str                # confirm | choice | param
+    value: bool | int | str
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -104,5 +110,37 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     store.idempotent_put(st, req.idempotency_key, dto)
                 return dto
 
-    # Task 8: /v1/pending/{id}/reply 路由在此追加
+    @app.post("/v1/pending/{pending_id}/reply", dependencies=[Depends(require_auth)])
+    async def reply(pending_id: str, req: ReplyReq) -> dict:
+        st = store.get_state(req.conversation_id)
+        async with sem:
+            async with st.lock:
+                if not store.take_pending(st, pending_id):
+                    raise HTTPException(status_code=409, detail="invalid or expired pending_id")
+                deadline = time.monotonic() + request_timeout
+                request_id = uuid.uuid4().hex
+                try:
+                    ctrl = await asyncio.to_thread(_fresh_controller, deadline)
+                    outcome = await asyncio.wait_for(
+                        asyncio.to_thread(st.session.reply, ctrl, req.kind, req.value),
+                        timeout=request_timeout)
+                except (asyncio.TimeoutError, DeadlineExceeded):
+                    store.clear_pending(st)
+                    return outcome_to_dto(_error_outcome("request timed out"),
+                                         conversation_id=req.conversation_id, pending_id=None,
+                                         expires_at=None, request_id=request_id,
+                                         registry=_empty_registry())
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc))
+                except Exception as exc:
+                    store.clear_pending(st)
+                    return outcome_to_dto(_error_outcome(str(exc)),
+                                         conversation_id=req.conversation_id, pending_id=None,
+                                         expires_at=None, request_id=request_id,
+                                         registry=_empty_registry())
+                pid = store.issue_pending(st) if (outcome.needs_confirmation or outcome.needs_param) else None
+                return outcome_to_dto(outcome, conversation_id=req.conversation_id, pending_id=pid,
+                                      expires_at=st.pending_expires_at, request_id=request_id,
+                                      registry=ctrl.engine.registry)
+
     return app

@@ -135,3 +135,65 @@ def test_turn_supersede_burns_old_pending_id():
                 json={"utterance": "关灯", "conversation_id": cid}).json()
     assert r2["status"] == "executed"
     assert r2["pending_id"] is None           # 旧 pending 被烧,未发新的
+
+
+def test_reply_confirm_executes_after_pending():
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha = _exec_app(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    cid, pid = turn["conversation_id"], turn["pending_id"]
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.status_code == 200 and r.json()["status"] == "executed"
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_reply_one_time_pending_id():
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha = _exec_app(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    cid, pid = turn["conversation_id"], turn["pending_id"]
+    body = {"conversation_id": cid, "kind": "confirm", "value": True}
+    c.post(f"/v1/pending/{pid}/reply", headers=_auth(), json=body)
+    again = c.post(f"/v1/pending/{pid}/reply", headers=_auth(), json=body)
+    assert again.status_code == 409
+    assert len(ha.calls) == 1
+
+
+def test_reply_wrong_pending_id_rejected():
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, _ = _exec_app(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    r = c.post("/v1/pending/bogus/reply", headers=_auth(),
+               json={"conversation_id": turn["conversation_id"], "kind": "confirm", "value": True})
+    assert r.status_code == 409
+
+
+def test_reply_requires_auth():
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, _ = _exec_app(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    r = c.post(f"/v1/pending/{turn['pending_id']}/reply",
+               json={"conversation_id": turn["conversation_id"], "kind": "confirm", "value": True})
+    assert r.status_code == 401
+
+
+def test_reply_wrong_id_preserves_pending_then_correct_id_works():
+    # 端点层防猜测:错误 pending_id → 409 且不执行、不烧真 pending;随后真 id 仍可用
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha = _exec_app(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    cid, pid = turn["conversation_id"], turn["pending_id"]
+    bad = c.post("/v1/pending/bogus/reply", headers=_auth(),
+                 json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert bad.status_code == 409
+    assert ha.calls == []                       # 错误猜测绝不执行
+    good = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+                  json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert good.json()["status"] == "executed"  # 真 pending 仍可用
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
