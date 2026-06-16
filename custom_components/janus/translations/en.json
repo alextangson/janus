@@ -15,5 +15,14 @@
       }
     },
     "error": {"invalid_key": "API Key 不能为空"}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Janus settings",
+        "data": {"tau": "Confidence threshold τ"},
+        "data_description": {"tau": "Parses below this go to confirm first. Higher = more cautious (more confirmations), lower = more decisive. Default 0.7."}
+      }
+    }
   }
 }

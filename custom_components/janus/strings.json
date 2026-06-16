@@ -15,5 +15,14 @@
       }
     },
     "error": {"invalid_key": "API Key 不能为空"}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Janus 设置",
+        "data": {"tau": "置信度阈值 τ"},
+        "data_description": {"tau": "低于此值的解析改为先确认。越高越谨慎(更多确认),越低越果断。默认 0.7。"}
+      }
+    }
   }
 }
