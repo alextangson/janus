@@ -32,6 +32,7 @@ class JanusConversationEntity(ConversationEntity):
     def __init__(self, entry, data: dict):
         self._attr_unique_id = entry.entry_id
         self._data = data
+        self._audit = data.get("audit")
         self._repls: dict[str, Repl] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -41,7 +42,9 @@ class JanusConversationEntity(ConversationEntity):
 
     async def async_process(self, user_input: ConversationInput) -> ConversationResult:
         conv_id = user_input.conversation_id or "default"
-        repl = self._repls.setdefault(conv_id, Repl(controller=None))
+        repl = self._repls.setdefault(
+            conv_id, Repl(controller=None,
+                          audit=self._audit.record if self._audit else None))
         shapes = collect_shapes(self.hass)  # 必须在事件循环线程读
 
         def _work() -> str:
@@ -52,6 +55,8 @@ class JanusConversationEntity(ConversationEntity):
         # 两个并发 turn 共享同一 Repl 会互相踩 pending。
         async with self._locks.setdefault(conv_id, asyncio.Lock()):
             reply = await self.hass.async_add_executor_job(_work)
+        if self._audit:
+            self._audit.schedule_save()  # 回 loop 线程,去抖落盘
         response = intent.IntentResponse(language=user_input.language)
         response.async_set_speech(reply or _EMPTY_REPLY)
         # pending 非空 = 刚反问/确认/选号,正等用户答 → 让卫星继续听,免重喊唤醒词

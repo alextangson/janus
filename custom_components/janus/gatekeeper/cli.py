@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .audit import build_record
 from .controller import Outcome
 from .replies import affirmation, choice_index, coerce_param
 
@@ -9,9 +10,10 @@ _DEVICES = {"设备", "/devices"}
 class Repl:
     """纯逻辑 REPL 核心:feed(一行输入) → 一段回复。pending 在这里,Controller 保持无状态。"""
 
-    def __init__(self, controller):
+    def __init__(self, controller, audit=None):
         self.controller = controller
         self.pending: Outcome | None = None
+        self.audit = audit
 
     def feed(self, line: str) -> str:
         line = line.strip()
@@ -21,7 +23,7 @@ class Repl:
             return ""
         if line.lower() in _DEVICES:  # 本地命令:不走 LLM
             return self._render_devices()
-        return self._render(self.controller.handle(line))
+        return self._resolve(line, self.controller.handle(line))
 
     def _render_devices(self) -> str:
         reg = self.controller.engine.registry
@@ -41,8 +43,8 @@ class Repl:
             idx = choice_index(line, len(pending.choices))
             if idx is not None:
                 self.pending = None
-                return self._render(self.controller.choose(pending.decision,
-                                                           pending.choices[idx - 1]))
+                return self._resolve(line, self.controller.choose(pending.decision,
+                                                                  pending.choices[idx - 1]))
             return pending.prompt or ""  # 没听懂 → 重示
         if pending.needs_param:  # 缺参数:等一个值
             if affirmation(line) is False:
@@ -55,15 +57,21 @@ class Repl:
             if value is None:
                 return pending.prompt or ""  # 没听懂 → 重示
             self.pending = None
-            return self._render(self.controller.provide_param(dec, value))
+            return self._resolve(line, self.controller.provide_param(dec, value))
         verdict = affirmation(line)  # 是/否确认
         if verdict is True:
             self.pending = None
-            return self._render(self.controller.confirm(pending.decision, approved=True))
+            return self._resolve(line, self.controller.confirm(pending.decision, approved=True))
         if verdict is False:
             self.pending = None
             return "已取消"
         return pending.prompt or ""  # 没听懂 → 重示
+
+    def _resolve(self, line: str, outcome: Outcome) -> str:
+        rendered = self._render(outcome)        # 可能置 self.pending
+        if self.audit:
+            self.audit(build_record(line, outcome, self.pending is not None))
+        return rendered
 
     def _render(self, outcome: Outcome) -> str:
         if outcome.executed:

@@ -15,8 +15,16 @@ PLATFORMS = ["conversation"]
 
 
 async def async_setup_entry(hass, entry) -> bool:
-    # setup 只存配置;一切重活推迟到对话时(那时 HA 必然已就绪)。
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = dict(entry.data)
+    # setup 只存配置 + 审计器;一切重活推迟到对话时(那时 HA 必然已就绪)。
+    from homeassistant.helpers.storage import Store
+
+    from .audit import DecisionAudit
+
+    audit = DecisionAudit(hass, Store(hass, 1, f"janus_audit_{entry.entry_id}"))
+    await audit.async_load()
+    data = dict(entry.data)
+    data["audit"] = audit
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
