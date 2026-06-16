@@ -1,1 +1,2 @@
 DOMAIN = "janus"
+DEFAULT_TAU = 0.7

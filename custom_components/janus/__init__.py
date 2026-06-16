@@ -9,7 +9,7 @@ homeassistant.* 与 .gatekeeper.*(部署期注入)只存在于 HA 运行时,必�
 """
 from __future__ import annotations
 
-from .const import DOMAIN
+from .const import DEFAULT_TAU, DOMAIN
 
 PLATFORMS = ["conversation"]
 _GLOBAL_REGISTERED = False
@@ -25,6 +25,8 @@ async def async_setup_entry(hass, entry) -> bool:
     await audit.async_load()
     data = dict(entry.data)
     data["audit"] = audit
+    data["tau"] = entry.options.get("tau", DEFAULT_TAU)
+    entry.async_on_unload(entry.add_update_listener(_async_reload))
 
     from .observer import ObservationLog, start_observer
 
@@ -36,6 +38,11 @@ async def async_setup_entry(hass, entry) -> bool:
     await _async_setup_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_reload(hass, entry) -> None:
+    """options 改了 → 重载 entry,新 τ 生效。"""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _async_setup_panel(hass) -> None:
@@ -115,7 +122,7 @@ def build_controller(hass, shapes: dict, data: dict):
     """shapes + 配置 → 全新 Controller。重活(gatekeeper/SDK 导入、客户端构造、
     SSL 加载)全在这里,必须在 executor 线程调用,不得碰事件循环。"""
     from .bridge import HassServiceCaller
-    from .gatekeeper.config import MODEL, TAU
+    from .gatekeeper.config import MODEL
     from .gatekeeper.context import build_context
     from .gatekeeper.controller import Controller
     from .gatekeeper.engine import Engine
@@ -137,5 +144,5 @@ def build_controller(hass, shapes: dict, data: dict):
 
         from .gatekeeper.parser import ClaudeParser
         parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]), context_provider=context_provider)
-    return Controller(Engine(parser, reg, TAU,
+    return Controller(Engine(parser, reg, data.get("tau", DEFAULT_TAU),
                              state_provider=lambda: shapes["states"]), HassServiceCaller(hass))
