@@ -138,3 +138,15 @@ def test_reply_unknown_kind_raises():
     sess.handle(ctrl, "开锁")
     with pytest.raises(ValueError):
         sess.reply(ctrl, "bogus", True)
+
+
+def test_cancel_clears_pending():
+    # 取消 / 被新指令覆盖 / 过期:Session 是清 pending 的唯一权威入口
+    danger = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                      operation="unlock", params={}, reason="敏感")
+    ctrl, _ = _ctrl(danger)
+    sess = Session()
+    sess.handle(ctrl, "开锁")
+    assert sess.pending is not None
+    sess.cancel()
+    assert sess.pending is None

@@ -39,6 +39,10 @@ class Session:
             raise ValueError(f"unknown reply kind: {kind!r}")
         return self._track(out)
 
+    def cancel(self) -> None:
+        """清空 pending(用户取消 / 被新指令覆盖 / 过期)。清 pending 的唯一权威入口。"""
+        self.pending = None
+
     def _track(self, outcome: Outcome) -> Outcome:
         """待确认/待补参的结果留作 pending;其余(执行/拒绝/答询/错误)清空。"""
         self.pending = outcome if (outcome.needs_confirmation or outcome.needs_param) else None

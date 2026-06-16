@@ -3,27 +3,33 @@ from __future__ import annotations
 from .audit import build_record
 from .controller import Outcome
 from .replies import affirmation, choice_index, coerce_param
+from .session import Session
 
 _DEVICES = {"设备", "/devices"}
 
 
 class Repl:
-    """纯逻辑 REPL 核心:feed(一行输入) → 一段回复。pending 在这里,Controller 保持无状态。"""
+    """CLI 渲染层:口语输入 → 解析成结构化答复喂给纯 Session → 渲染成字符串。
+    pending 由 Session 持有;Repl 只做口语解析 + 渲染 + 审计。"""
 
     def __init__(self, controller, audit=None):
         self.controller = controller
-        self.pending: Outcome | None = None
+        self.session = Session()
         self.audit = audit
+
+    @property
+    def pending(self) -> Outcome | None:
+        return self.session.pending
 
     def feed(self, line: str) -> str:
         line = line.strip()
-        if self.pending is not None:
+        if self.session.pending is not None:
             return self._feed_pending(line)
         if not line:
             return ""
         if line.lower() in _DEVICES:  # 本地命令:不走 LLM
             return self._render_devices()
-        return self._resolve(line, self.controller.handle(line))
+        return self._resolve(line, self.session.handle(self.controller, line))
 
     def _render_devices(self) -> str:
         reg = self.controller.engine.registry
@@ -35,44 +41,43 @@ class Repl:
         return f"共 {len(lines)} 个设备:\n" + "\n".join(lines)
 
     def _feed_pending(self, line: str) -> str:
-        pending = self.pending
+        pending = self.session.pending
         if pending.choices:  # 歧义:等序号(口语序数亦可)
             if affirmation(line) is False:
                 return self._cancel(line, pending)
             idx = choice_index(line, len(pending.choices))
             if idx is not None:
-                self.pending = None
-                return self._resolve(line, self.controller.choose(pending.decision,
-                                                                  pending.choices[idx - 1]))
+                return self._resolve(line, self.session.reply(
+                    self.controller, "choice", pending.choices[idx - 1]))
             return pending.prompt or ""  # 没听懂 → 重示
         if pending.needs_param:  # 缺参数:等一个值
             if affirmation(line) is False:
                 return self._cancel(line, pending)
             dec = pending.decision
             device = self.controller.engine.registry.get(dec.device_id)
+            if device is None:  # 设备在反问与答复之间消失(HA 每轮重建注册表)→ 重示,不崩
+                return pending.prompt or ""
             spec = device.operations[dec.operation].params[dec.missing_param]
             value = coerce_param(line, spec)
             if value is None:
                 return pending.prompt or ""  # 没听懂 → 重示
-            self.pending = None
-            return self._resolve(line, self.controller.provide_param(dec, value))
+            return self._resolve(line, self.session.reply(self.controller, "param", value))
         verdict = affirmation(line)  # 是/否确认
         if verdict is True:
-            self.pending = None
-            return self._resolve(line, self.controller.confirm(pending.decision, approved=True))
+            return self._resolve(line, self.session.reply(self.controller, "confirm", True))
         if verdict is False:
             return self._cancel(line, pending)
         return pending.prompt or ""  # 没听懂 → 重示
 
     def _resolve(self, line: str, outcome: Outcome) -> str:
-        rendered = self._render(outcome)        # 可能置 self.pending
+        rendered = self._render(outcome)
         if self.audit:
-            self.audit(build_record(line, outcome, self.pending is not None))
+            self.audit(build_record(line, outcome, self.session.pending is not None))
         return rendered
 
     def _cancel(self, line: str, pending: Outcome) -> str:
-        # 用户拒绝/取消一个待确认决定:清 pending,并留下一条审计痕迹(安全审计要能答"谁拒了")
-        self.pending = None
+        # 用户拒绝/取消一个待确认决定:清 pending,并留审计痕迹(安全审计要能答"谁拒了")
+        self.session.cancel()
         if self.audit:
             self.audit(build_record(line, Outcome(decision=pending.decision, executed=False), False))
         return "已取消"
@@ -84,7 +89,6 @@ class Repl:
         if outcome.error:
             return f"❌ 失败:{outcome.error}"
         if outcome.needs_confirmation or outcome.needs_param:  # 含链式危险确认 / 缺参数反问
-            self.pending = outcome
             return outcome.prompt or ""
         if outcome.decision.verdict == "answer":
             return f"🔎 {outcome.decision.reason}"
@@ -146,7 +150,7 @@ def main() -> None:
         try:
             reply = repl.feed(line)
         except KeyboardInterrupt:
-            repl.pending = None  # 丢弃半截状态,确定性回到空闲
+            repl.session.cancel()  # 丢弃半截状态,确定性回到空闲(pending 只读,经 Session 清)
             print("(已取消本条指令)")
             continue
         if reply:
