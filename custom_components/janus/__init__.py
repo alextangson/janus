@@ -69,6 +69,8 @@ async def _async_setup_panel(hass) -> None:
 
 
 async def async_unload_entry(hass, entry) -> bool:
+    import logging
+
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
         from homeassistant.components import frontend
@@ -79,10 +81,13 @@ async def async_unload_entry(hass, entry) -> bool:
         data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         audit = data.get("audit") if data else None
         if audit is not None:
-            await audit.async_flush()  # 重载前即时落盘,别丢去抖窗口内的记录
+            try:
+                await audit.async_flush()  # 重载前即时落盘,别丢去抖窗口内的记录
+            except Exception:  # noqa: BLE001 — 一处落盘失败不连累另一处/卸载
+                logging.getLogger(__name__).exception("janus audit flush failed")
         obs_log = data.get("observations") if data else None
         if obs_log is not None:
-            await obs_log.async_flush()
+            await obs_log.async_flush()  # 自身已 try 兜底
     return ok
 
 

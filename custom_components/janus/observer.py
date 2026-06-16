@@ -3,12 +3,13 @@
 """
 from __future__ import annotations
 
+import functools
 import logging
 from collections import deque
 from dataclasses import asdict
 
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import callback
+from homeassistant.core import CoreState, callback
 from homeassistant.util import dt as dt_util
 
 from .gatekeeper.observations import build_observation, classify_source
@@ -46,11 +47,16 @@ class ObservationLog:
             self._log.extend(data[-_MAX:])
 
     async def async_flush(self) -> None:
-        await self._store.async_save(self.snapshot())
+        try:
+            await self._store.async_save(self.snapshot())
+        except Exception:  # noqa: BLE001 — 落盘失败绝不连累卸载
+            _LOGGER.exception("janus observation flush failed")
 
 
 @callback
-def _on_state_change(log, event):
+def _on_state_change(hass, log, event):
+    if hass.state is not CoreState.running:
+        return  # 启动/恢复期的 state_changed 是 restore 幻影,不是真行为
     if event.data.get("entity_id", "").split(".")[0] not in _OBSERVED_DOMAINS:
         return  # 只关心 light/cover/lock,其余一次域判断即早退
     new = event.data.get("new_state")
@@ -66,5 +72,8 @@ def _on_state_change(log, event):
 
 def start_observer(hass, log):
     """监听全量 state_changed 总线(回调按域早退)→ race-free,运行时新设备立即纳入。
+    用 functools.partial 而非 lambda:保住 _on_state_change 的 @callback 标记,回调才在
+    loop 线程内联跑(lambda 会被 HA 当 executor 任务、毁掉无锁不变量 + 线程池洪泛)。
     返回 unsub,交给 entry.async_on_unload。"""
-    return hass.bus.async_listen(EVENT_STATE_CHANGED, lambda e: _on_state_change(log, e))
+    return hass.bus.async_listen(EVENT_STATE_CHANGED,
+                                 functools.partial(_on_state_change, hass, log))
