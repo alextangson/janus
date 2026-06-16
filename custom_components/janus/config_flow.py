@@ -3,14 +3,22 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (NumberSelector, NumberSelectorConfig,
+                                            NumberSelectorMode)
 
-from .const import DOMAIN
+from .const import DEFAULT_TAU, DOMAIN
 
 _DEFAULT_BASE_URL = "http://host.docker.internal:11434/v1"
 
 
 class JanusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return JanusOptionsFlow()
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
@@ -47,5 +55,22 @@ class JanusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required("base_url", default=_DEFAULT_BASE_URL): str,
                 vol.Required("model", default="gemma4"): str,
+            }),
+        )
+
+
+class JanusOptionsFlow(config_entries.OptionsFlow):
+    """运行时可调项:目前只有 τ。config_entry 由 HA 自动注入。"""
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        current = self.config_entry.options.get("tau", DEFAULT_TAU)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required("tau", default=current): NumberSelector(
+                    NumberSelectorConfig(min=0.0, max=1.0, step=0.05,
+                                         mode=NumberSelectorMode.SLIDER)),
             }),
         )
