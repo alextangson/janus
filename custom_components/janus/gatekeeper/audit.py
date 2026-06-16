@@ -35,10 +35,19 @@ def build_record(utterance: str, outcome, pending_after: bool) -> DecisionRecord
     )
 
 
+# 只有 reason 为代码生成的静态模板的关卡,才把 reason 放进 INFO 摘要(默认拒)。
+# query 的 reason 是渲染出的实时设备状态(名字/开关/温度),inferred 的 reason 是模型自由
+# 文本(notes)——二者都会泄露作息/房间/安防,绝不进 INFO,只留在 DEBUG 完整行 / 持久化里。
+_SAFE_REASON_STAGES = frozenset({
+    "parse", "ambiguous", "feasibility", "confidence", "safety", "passed", "error", "param",
+})
+
+
 def summary(rec: DecisionRecord) -> str:
-    """脱敏单行(进 _LOGGER INFO):只露 device_id + verdict/stage + 执行标记 + reason 截断,
-    绝不含 raw utterance / params 值(它们泄露作息/房间,只压到 DEBUG 的完整记录)。"""
+    """脱敏单行(进 _LOGGER INFO):露 device_id + verdict/stage + 执行标记 + 静态 reason 截断,
+    绝不含 raw utterance / params 值 / 实时状态 / 模型自由文本。"""
     tail = "✓" if rec.executed else ("✗" if rec.error else "·")
     dev = rec.device_id or "—"
     op = rec.operation or ""
-    return f"[janus] {rec.verdict}/{rec.stage} {dev} {op} {tail} {rec.reason[:40]}".rstrip()
+    reason = rec.reason[:40] if rec.stage in _SAFE_REASON_STAGES else ""
+    return f"[janus] {rec.verdict}/{rec.stage} {dev} {op} {tail} {reason}".rstrip()

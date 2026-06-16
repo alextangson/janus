@@ -38,8 +38,7 @@ class Repl:
         pending = self.pending
         if pending.choices:  # 歧义:等序号(口语序数亦可)
             if affirmation(line) is False:
-                self.pending = None
-                return "已取消"
+                return self._cancel(line, pending)
             idx = choice_index(line, len(pending.choices))
             if idx is not None:
                 self.pending = None
@@ -48,8 +47,7 @@ class Repl:
             return pending.prompt or ""  # 没听懂 → 重示
         if pending.needs_param:  # 缺参数:等一个值
             if affirmation(line) is False:
-                self.pending = None
-                return "已取消"
+                return self._cancel(line, pending)
             dec = pending.decision
             device = self.controller.engine.registry.get(dec.device_id)
             spec = device.operations[dec.operation].params[dec.missing_param]
@@ -63,8 +61,7 @@ class Repl:
             self.pending = None
             return self._resolve(line, self.controller.confirm(pending.decision, approved=True))
         if verdict is False:
-            self.pending = None
-            return "已取消"
+            return self._cancel(line, pending)
         return pending.prompt or ""  # 没听懂 → 重示
 
     def _resolve(self, line: str, outcome: Outcome) -> str:
@@ -72,6 +69,13 @@ class Repl:
         if self.audit:
             self.audit(build_record(line, outcome, self.pending is not None))
         return rendered
+
+    def _cancel(self, line: str, pending: Outcome) -> str:
+        # 用户拒绝/取消一个待确认决定:清 pending,并留下一条审计痕迹(安全审计要能答"谁拒了")
+        self.pending = None
+        if self.audit:
+            self.audit(build_record(line, Outcome(decision=pending.decision, executed=False), False))
+        return "已取消"
 
     def _render(self, outcome: Outcome) -> str:
         if outcome.executed:

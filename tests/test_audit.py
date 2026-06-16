@@ -44,3 +44,17 @@ def test_summary_marks_failure_and_reject():
     assert "✗" in summary(err)
     rej = build_record("乱说", _outcome("reject", stage="parse", reason="没识别"), False)
     assert "reject/parse" in summary(rej) and "·" in summary(rej)
+
+
+def test_summary_omits_reason_on_query_and_inferred():
+    # query 的 reason 是渲染出的实时设备状态(含名字/开关),绝不能进 INFO 日志
+    q = build_record("前门锁着吗", _outcome("answer", stage="query", device_id="lock.front",
+                                            operation=None, reason="前门锁:已开"), False)
+    s = summary(q)
+    assert "已开" not in s and "前门锁" not in s   # 实时状态不泄露
+    assert "answer/query" in s                       # 但 verdict/stage 仍在
+    # inferred 的 reason 是模型自由文本(notes),同样不进 INFO
+    inf = build_record("有点冷", _outcome("confirm", stage="inferred", device_id="climate.ac",
+                                          operation="set_temperature",
+                                          reason="室外14°C偏凉,建议调到26度"), True)
+    assert "偏凉" not in summary(inf) and "26" not in summary(inf)

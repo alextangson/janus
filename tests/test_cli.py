@@ -338,8 +338,17 @@ def test_audit_skips_non_decision_turns():
     repl.feed("设备")                       # 设备清单:不记
     repl.feed("")                           # 空行:不记
     repl.feed("开锁")                       # confirm:记 1
-    repl.feed("不用了")                     # 取消:不记
     assert len(sink) == 1
+
+
+def test_audit_records_cancellation():
+    # 安全审计:用户拒绝一个待确认(常是危险)操作,必须留痕
+    repl, sink = _mk_audited(_danger())
+    repl.feed("开锁")                       # 记 1:confirm,pending
+    repl.feed("不用了")                     # 记 2:取消
+    assert len(sink) == 2
+    assert sink[-1].verdict == "confirm" and sink[-1].executed is False
+    assert sink[-1].utterance == "不用了" and sink[-1].pending_after is False
 
 
 def test_audit_default_none_is_noop():
