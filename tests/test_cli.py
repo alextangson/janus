@@ -299,3 +299,49 @@ def test_ambiguous_accepts_spoken_ordinal():
     repl.feed("关掉卧室的灯")
     assert repl.feed("第二个") == "✅ 已执行:light.b.turn_off"
     assert ha.calls == [("light", "turn_off", "light.b", {})]
+
+
+# ---------------------------------------------------------------------------
+# Task 2 (audit): Repl 注入审计 sink
+# ---------------------------------------------------------------------------
+
+def _mk_audited(decision, resolved=None):
+    sink = []
+    ha = StubHA()
+    eng = FakeEngine(decision, resolved=resolved, registry=_registry())
+    repl = Repl(Controller(eng, ha), audit=sink.append)
+    return repl, sink
+
+
+def test_audit_records_single_allow_turn():
+    repl, sink = _mk_audited(_allow())
+    repl.feed("关灯")
+    assert len(sink) == 1
+    rec = sink[0]
+    assert rec.utterance == "关灯"
+    assert rec.verdict == "allow" and rec.executed is True
+    assert rec.pending_after is False
+
+
+def test_audit_records_multiturn_confirm():
+    repl, sink = _mk_audited(_danger())
+    repl.feed("开锁")                       # confirm,未执行,pending
+    assert sink[-1].verdict == "confirm" and sink[-1].executed is False
+    assert sink[-1].pending_after is True
+    repl.feed("好的")                       # 确认 → 执行
+    assert len(sink) == 2
+    assert sink[-1].executed is True and sink[-1].pending_after is False
+
+
+def test_audit_skips_non_decision_turns():
+    repl, sink = _mk_audited(_danger())
+    repl.feed("设备")                       # 设备清单:不记
+    repl.feed("")                           # 空行:不记
+    repl.feed("开锁")                       # confirm:记 1
+    repl.feed("不用了")                     # 取消:不记
+    assert len(sink) == 1
+
+
+def test_audit_default_none_is_noop():
+    repl, ha = _mk(_allow())                # 默认无 audit
+    assert repl.feed("关灯") == "✅ 已执行:light.a.turn_off"   # 行为不变
