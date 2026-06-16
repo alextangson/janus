@@ -54,3 +54,21 @@ def test_coerce_enum_english_and_chinese():
     assert coerce_param("制热", spec) == "heat"
     assert coerce_param("调成制冷", spec) == "cool"
     assert coerce_param("乱七八糟", spec) is None
+
+
+from gatekeeper.replies import affirmation
+
+
+def test_affirmation_positive():
+    for s in ["好", "好的", "是", "对", "行", "可以", "嗯", "确认", "y", "yes", "OK"]:
+        assert affirmation(s) is True, s
+
+
+def test_affirmation_negative():
+    for s in ["不", "不用", "不用了", "不要", "别", "取消", "算了", "不好", "n", "no", "否"]:
+        assert affirmation(s) is False, s
+
+
+def test_affirmation_unclear_is_none():
+    for s in ["随便", "二十六", "第二个", ""]:
+        assert affirmation(s) is None, s

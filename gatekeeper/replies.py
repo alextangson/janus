@@ -63,3 +63,19 @@ def coerce_param(reply: str, spec: ParamSpec) -> int | str | None:
             if v in reply or _HVAC_ZH.get(v, "\0") in reply:
                 return v
     return None
+
+
+_NEG = ("不", "别", "取消", "算了", "no", "n", "否")
+_POS = ("好", "是", "对", "行", "可以", "嗯", "确认", "ok", "yes", "y")
+
+
+def affirmation(line: str) -> bool | None:
+    """口语是/否三态:负优先 → False;再肯定 → True;都不是 → None。"""
+    low = (line or "").strip().lower()
+    if not low:
+        return None
+    if any(n in low for n in _NEG):
+        return False
+    if any(p in low for p in _POS):
+        return True
+    return None
