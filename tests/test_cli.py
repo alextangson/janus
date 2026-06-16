@@ -264,3 +264,38 @@ def test_ask_value_out_of_range_renders_reject():
     assert out.startswith("🚫") and "超出范围" in out
     assert repl.pending is None
     assert ha.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Task 5: 口语多轮(中文数字 / 口语是否 / 口语选号)
+# ---------------------------------------------------------------------------
+
+def test_ask_accepts_spoken_chinese_number():
+    resolved = Decision(verdict="allow", stage="passed", device_id="climate.ac",
+                        operation="set_temperature", params={"temperature": 26})
+    repl, ha = _mk_ask(resolved)
+    repl.feed("调一下空调温度")
+    assert repl.feed("二十六") == "✅ 已执行:climate.ac.set_temperature"
+    assert ha.calls == [("climate", "set_temperature", "climate.ac", {"temperature": 26})]
+
+
+def test_confirm_accepts_spoken_affirmation():
+    repl, ha = _mk(_danger())
+    repl.feed("开锁")
+    assert repl.feed("好的") == "✅ 已执行:lock.door.unlock"
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_confirm_spoken_negative_cancels():
+    repl, ha = _mk(_danger())
+    repl.feed("开锁")
+    assert repl.feed("不用了") == "已取消"
+    assert repl.pending is None
+    assert ha.calls == []
+
+
+def test_ambiguous_accepts_spoken_ordinal():
+    repl, ha = _mk(_amb(), resolved=_allow("light.b"))
+    repl.feed("关掉卧室的灯")
+    assert repl.feed("第二个") == "✅ 已执行:light.b.turn_off"
+    assert ha.calls == [("light", "turn_off", "light.b", {})]
