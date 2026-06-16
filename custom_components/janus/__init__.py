@@ -12,6 +12,7 @@ from __future__ import annotations
 from .const import DOMAIN
 
 PLATFORMS = ["conversation"]
+_GLOBAL_REGISTERED = False
 
 
 async def async_setup_entry(hass, entry) -> bool:
@@ -25,13 +26,49 @@ async def async_setup_entry(hass, entry) -> bool:
     data = dict(entry.data)
     data["audit"] = audit
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
+    await _async_setup_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_setup_panel(hass) -> None:
+    """注册侧栏面板:静态资源 + WS 命令(进程级,幂等)+ 面板(每 entry)。
+    面板挂了绝不连累控制功能,整体兜底。"""
+    global _GLOBAL_REGISTERED
+    try:
+        from pathlib import Path
+
+        from homeassistant.components import panel_custom, websocket_api
+        from homeassistant.components.http import StaticPathConfig
+
+        from .panel import ws_list_decisions
+
+        if not _GLOBAL_REGISTERED:
+            await hass.http.async_register_static_paths([
+                StaticPathConfig(
+                    "/janus_static/janus-panel.js",
+                    str(Path(__file__).parent / "www" / "janus-panel.js"),
+                    False,
+                )])
+            websocket_api.async_register_command(hass, ws_list_decisions)
+            _GLOBAL_REGISTERED = True
+        await panel_custom.async_register_panel(
+            hass, webcomponent_name="janus-audit-panel", frontend_url_path="janus",
+            module_url="/janus_static/janus-panel.js", sidebar_title="Janus",
+            sidebar_icon="mdi:shield-check", require_admin=False)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception("janus panel setup failed")
 
 
 async def async_unload_entry(hass, entry) -> bool:
     ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if ok:
+        from homeassistant.components import frontend
+        try:
+            frontend.async_remove_panel(hass, "janus")
+        except Exception:  # noqa: BLE001
+            pass
         data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         audit = data.get("audit") if data else None
         if audit is not None:
