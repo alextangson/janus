@@ -266,6 +266,18 @@ def test_ask_value_out_of_range_renders_reject():
     assert ha.calls == []
 
 
+def test_param_missing_device_reprompts_not_crash():
+    # HA 路径每轮重建注册表;设备在反问与答复之间消失 → 缺参分支不得崩,重示并留 pending
+    ha = StubHA()
+    eng = FakeEngine(_ask(), resolved=None, registry=Registry({}))  # 注册表里没有 climate.ac
+    repl = Repl(Controller(eng, ha))
+    prompt = repl.feed("调一下空调温度")        # ask:_prompt 走 controller None 守卫,不崩
+    assert repl.pending is not None
+    assert repl.feed("26") == prompt            # 设备没了 → 重示,不崩
+    assert repl.pending is not None
+    assert ha.calls == []
+
+
 # ---------------------------------------------------------------------------
 # Task 5: 口语多轮(中文数字 / 口语是否 / 口语选号)
 # ---------------------------------------------------------------------------
