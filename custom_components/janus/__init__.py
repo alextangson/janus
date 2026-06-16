@@ -25,7 +25,14 @@ async def async_setup_entry(hass, entry) -> bool:
     await audit.async_load()
     data = dict(entry.data)
     data["audit"] = audit
+
+    from .observer import ObservationLog, start_observer
+
+    obs_log = ObservationLog(hass, Store(hass, 1, f"janus_observations_{entry.entry_id}"))
+    await obs_log.async_load()
+    data["observations"] = obs_log
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
+    entry.async_on_unload(start_observer(hass, obs_log))
     await _async_setup_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -73,6 +80,9 @@ async def async_unload_entry(hass, entry) -> bool:
         audit = data.get("audit") if data else None
         if audit is not None:
             await audit.async_flush()  # 重载前即时落盘,别丢去抖窗口内的记录
+        obs_log = data.get("observations") if data else None
+        if obs_log is not None:
+            await obs_log.async_flush()
     return ok
 
 
