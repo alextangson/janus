@@ -54,4 +54,6 @@ class JanusConversationEntity(ConversationEntity):
             reply = await self.hass.async_add_executor_job(_work)
         response = intent.IntentResponse(language=user_input.language)
         response.async_set_speech(reply or _EMPTY_REPLY)
-        return ConversationResult(response=response, conversation_id=conv_id)
+        # pending 非空 = 刚反问/确认/选号,正等用户答 → 让卫星继续听,免重喊唤醒词
+        return ConversationResult(response=response, conversation_id=conv_id,
+                                  continue_conversation=repl.pending is not None)

@@ -1,26 +1,9 @@
 from __future__ import annotations
 
-import re
-
 from .controller import Outcome
-from .models import ParamSpec
-from .queries import _HVAC_ZH
+from .replies import affirmation, choice_index, coerce_param
 
-_YES = {"y", "yes", "是", "好"}
-_NO = {"n", "no", "否", "取消"}
 _DEVICES = {"设备", "/devices"}
-
-
-def coerce_param(reply: str, spec: ParamSpec) -> int | str | None:
-    """把用户对反问的回答确定性转成参数值;转不出 → None(由调用方重问)。不调模型。"""
-    if spec.type == "int":
-        m = re.search(r"-?\d+", reply)
-        return int(m.group()) if m else None
-    if spec.type == "enum":
-        for v in (spec.enum or []):
-            if v in reply or _HVAC_ZH.get(v, "\0") in reply:
-                return v
-    return None
 
 
 class Repl:
@@ -51,17 +34,18 @@ class Repl:
 
     def _feed_pending(self, line: str) -> str:
         pending = self.pending
-        if pending.choices:  # 歧义:等序号
-            if line.lower() in _NO:
+        if pending.choices:  # 歧义:等序号(口语序数亦可)
+            if affirmation(line) is False:
                 self.pending = None
                 return "已取消"
-            if line.isdigit() and 1 <= int(line) <= len(pending.choices):
+            idx = choice_index(line, len(pending.choices))
+            if idx is not None:
                 self.pending = None
-                chosen = pending.choices[int(line) - 1]
-                return self._render(self.controller.choose(pending.decision, chosen))
+                return self._render(self.controller.choose(pending.decision,
+                                                           pending.choices[idx - 1]))
             return pending.prompt or ""  # 没听懂 → 重示
         if pending.needs_param:  # 缺参数:等一个值
-            if line.lower() in _NO:
+            if affirmation(line) is False:
                 self.pending = None
                 return "已取消"
             dec = pending.decision
@@ -72,13 +56,14 @@ class Repl:
                 return pending.prompt or ""  # 没听懂 → 重示
             self.pending = None
             return self._render(self.controller.provide_param(dec, value))
-        if line.lower() in _YES:  # 是/否确认
+        verdict = affirmation(line)  # 是/否确认
+        if verdict is True:
             self.pending = None
             return self._render(self.controller.confirm(pending.decision, approved=True))
-        if line.lower() in _NO:
+        if verdict is False:
             self.pending = None
             return "已取消"
-        return pending.prompt or ""
+        return pending.prompt or ""  # 没听懂 → 重示
 
     def _render(self, outcome: Outcome) -> str:
         if outcome.executed:
