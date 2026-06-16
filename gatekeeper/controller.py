@@ -95,6 +95,8 @@ class Controller:
                     f"「{decision.operation} → {decision.device_id}」({dict(decision.params)})吗?")
         if decision.stage == "param":
             device = self.engine.registry.get(decision.device_id)
+            if device is None:
+                return f"请提供参数「{decision.missing_param}」的值"
             spec = device.operations[decision.operation].params[decision.missing_param]
             label = _PARAM_ZH.get(decision.missing_param, decision.missing_param)
             if spec.type == "enum":
