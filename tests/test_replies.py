@@ -72,3 +72,19 @@ def test_affirmation_negative():
 def test_affirmation_unclear_is_none():
     for s in ["随便", "二十六", "第二个", ""]:
         assert affirmation(s) is None, s
+
+
+from gatekeeper.replies import choice_index
+
+
+def test_choice_index_arabic_and_spoken():
+    assert choice_index("2", 3) == 2
+    assert choice_index("第二个", 3) == 2
+    assert choice_index("二", 3) == 2
+    assert choice_index("选第一盏", 3) == 1
+
+
+def test_choice_index_out_of_range_or_unparseable():
+    assert choice_index("8", 2) is None       # 越界
+    assert choice_index("第五个", 2) is None    # 越界
+    assert choice_index("随便", 2) is None

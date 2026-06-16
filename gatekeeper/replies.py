@@ -79,3 +79,9 @@ def affirmation(line: str) -> bool | None:
     if any(p in low for p in _POS):
         return True
     return None
+
+
+def choice_index(line: str, n: int) -> int | None:
+    """口语选号 → 1..n,否则 None。'第二个'→2 '选第一盏'→1。"""
+    idx = extract_int(line)
+    return idx if idx is not None and 1 <= idx <= n else None
