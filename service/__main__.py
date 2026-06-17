@@ -23,7 +23,8 @@ def main() -> None:
     audit = AuditSink(svc.AUDIT_DB)
     app = create_app(ha_client=ha_client, llm_client=llm_client, backend=BACKEND, model=MODEL,
                      tau=TAU, api_token=svc.API_TOKEN, request_timeout=svc.REQUEST_TIMEOUT_S,
-                     max_concurrency=svc.MAX_CONCURRENCY, store=store, audit=audit)
+                     max_concurrency=svc.MAX_CONCURRENCY, store=store, audit=audit,
+                     cors_origins=svc.CORS_ORIGINS)
     uvicorn.run(app, host=svc.HOST, port=svc.PORT)
 
 
