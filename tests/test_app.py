@@ -494,6 +494,13 @@ def test_put_settings_rejects_out_of_range():
     assert _client().put("/v1/settings", headers=_auth(), json={"tau": -0.1}).status_code == 422
 
 
+def test_put_settings_accepts_boundary_values():
+    # ge=0.0 / le=1.0 是闭区间:边界值应被接受(防未来误改成 gt/lt)
+    c = _client()
+    assert c.put("/v1/settings", headers=_auth(), json={"tau": 0.0}).json()["tau"] == 0.0
+    assert c.put("/v1/settings", headers=_auth(), json={"tau": 1.0}).json()["tau"] == 1.0
+
+
 def test_settings_requires_auth():
     c = _client()
     assert c.get("/v1/settings").status_code == 401

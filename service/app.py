@@ -282,7 +282,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
     @app.put("/v1/settings", dependencies=[Depends(require_auth)])
     def put_settings(req: SettingsReq) -> dict:
         tau_box["value"] = req.tau
-        return {"tau": tau_box["value"]}
+        return {"tau": req.tau}
 
     @app.get("/v1/audit", dependencies=[Depends(require_auth)])
     def get_audit(limit: int = 50) -> dict:
