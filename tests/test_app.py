@@ -211,3 +211,125 @@ def test_confirm_expires_at_is_wallclock_epoch():
     exp = body["expires_at"]
     assert exp is not None
     assert before <= exp <= before + 200        # 默认 TTL 120s;monotonic(开机秒)会落在此区间外
+
+
+from service.audit import AuditSink
+
+
+def _exec_app_audited(decision, resolved=None):
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(decision, resolved=resolved, registry=_reg_for_turn()), ha)
+    audit = AuditSink(":memory:")
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     controller_factory=lambda deadline=None: ctrl, audit=audit)
+    return TestClient(app), ha, audit
+
+
+def test_turn_emits_audit_record():
+    dec = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha, audit = _exec_app_audited(dec)
+    c.post("/v1/turn", headers=_auth(), json={"utterance": "关灯"})
+    rows = audit.recent(limit=10)
+    assert len(rows) == 1
+    assert rows[0]["event"] == "executed" and rows[0]["utterance"] == "关灯"
+    assert rows[0]["phase"] == "turn" and rows[0]["caller"]
+
+
+def test_audit_endpoint_requires_auth_and_returns_records():
+    dec = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha, audit = _exec_app_audited(dec)
+    c.post("/v1/turn", headers=_auth(), json={"utterance": "关灯"})
+    assert c.get("/v1/audit").status_code == 401
+    r = c.get("/v1/audit?limit=10", headers=_auth())
+    assert r.status_code == 200
+    recs = r.json()["records"]
+    assert recs and recs[0]["event"] == "executed"
+    assert recs[0]["utterance"] == "关灯"
+
+
+def test_reply_emits_records():
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha, audit = _exec_app_audited(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    c.post(f"/v1/pending/{turn['pending_id']}/reply", headers=_auth(),
+           json={"conversation_id": turn["conversation_id"], "kind": "confirm", "value": True})
+    events = [r["event"] for r in audit.recent(limit=10)]
+    assert "proposed" in events and "executed" in events
+
+
+def test_supersede_emits_superseded_event():
+    dec_confirm = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                           operation="unlock", reason="敏感")
+    dec_allow = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    ha = StubHA()
+    calls = [0]
+
+    def factory(deadline=None):
+        calls[0] += 1
+        d = dec_confirm if calls[0] == 1 else dec_allow
+        return Controller(FakeEngine(d, registry=_reg_for_turn()), ha)
+
+    audit = AuditSink(":memory:")
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude", model="m",
+                     tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     controller_factory=factory, audit=audit)
+    c = TestClient(app)
+    cid = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()["conversation_id"]
+    c.post("/v1/turn", headers=_auth(), json={"utterance": "关灯", "conversation_id": cid})
+    events = [r["event"] for r in audit.recent(limit=10)]
+    assert "superseded" in events
+
+
+def test_audit_none_is_noop():
+    dec = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha = _exec_app(dec)               # 老助手,无 audit
+    r = c.post("/v1/turn", headers=_auth(), json={"utterance": "关灯"})
+    assert r.json()["status"] == "executed"
+
+
+def test_turn_timeout_emits_failed_audit():
+    # 事故可诊断:超时/崩溃的 turn 也要留审计(event=failed)
+    import asyncio
+
+    class HangingEngine(FakeEngine):
+        def decide(self, instruction):
+            raise asyncio.TimeoutError()
+
+    ha = StubHA()
+    ctrl = Controller(HangingEngine(registry=_reg_for_turn()), ha)
+    audit = AuditSink(":memory:")
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude", model="m",
+                     tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     controller_factory=lambda deadline=None: ctrl, audit=audit)
+    TestClient(app).post("/v1/turn", headers=_auth(), json={"utterance": "关灯"})
+    rows = audit.recent(limit=10)
+    assert len(rows) == 1 and rows[0]["event"] == "failed"
+
+
+def test_reply_deny_audits_cancelled():
+    # 否决一个确认:不执行,审计成 cancelled
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha, audit = _exec_app_audited(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    c.post(f"/v1/pending/{turn['pending_id']}/reply", headers=_auth(),
+           json={"conversation_id": turn["conversation_id"], "kind": "confirm", "value": False})
+    events = [r["event"] for r in audit.recent(limit=10)]
+    assert "cancelled" in events
+    assert ha.calls == []                # 否决不执行
+
+
+def test_reply_invalid_kind_400_audits_failed():
+    # 非法 kind:400,且留审计痕迹(failed),pending 被烧不留悬空
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha, audit = _exec_app_audited(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    r = c.post(f"/v1/pending/{turn['pending_id']}/reply", headers=_auth(),
+               json={"conversation_id": turn["conversation_id"], "kind": "bogus", "value": True})
+    assert r.status_code == 400
+    events = [row["event"] for row in audit.recent(limit=10)]
+    assert "failed" in events             # 协议错也可诊断
+    assert ha.calls == []
