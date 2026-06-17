@@ -73,7 +73,7 @@ class Controller:
         resolved = self.engine.decide_resolved(decision.device_id, decision.operation, params)
         return self._dispatch(resolved)
 
-    def control(self, device_id: str, operation: str | None, params: dict | None = None) -> Outcome:
+    def control(self, device_id: str, operation: str, params: dict | None = None) -> Outcome:
         """结构化控制(设备页滑块/开关):无 LLM 复审(decide_resolved → 过 validator + 危险闸)→ dispatch。
         allow 直接执行;dangerous → 待确认(随后走 confirm());非法值 → reject;缺必填 → 待补参。"""
         resolved = self.engine.decide_resolved(device_id, operation, params or {})

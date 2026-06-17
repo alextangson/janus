@@ -201,3 +201,15 @@ def test_session_control_allow_executes_and_clears_pending():
     out = sess.control(ctrl, "light.a", "turn_off", {})
     assert out.executed is True and sess.pending is None
     assert ha.calls == [("light", "turn_off", "light.a", {})]
+
+
+def test_session_control_reject_clears_pending():
+    # 安全不变量:control 被 reject 时不执行、不留 pending
+    reject = Decision(verdict="reject", stage="feasibility", device_id="light.a",
+                      operation="turn_on", params={}, reason="超出范围")
+    ctrl, ha = _ctrl(resolved=reject)
+    sess = Session()
+    out = sess.control(ctrl, "light.a", "turn_on", {"brightness_pct": 999})
+    assert out.executed is False and out.needs_confirmation is False
+    assert sess.pending is None
+    assert ha.calls == []
