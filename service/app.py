@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import time
 import uuid
@@ -42,12 +43,24 @@ def _empty_registry() -> Registry:
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                api_token: str, request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
-               controller_factory=None) -> FastAPI:
+               controller_factory=None, audit=None) -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
     app = FastAPI(title="Janus", version="1")
     store = store or ConversationStore()
     sem = asyncio.Semaphore(max_concurrency)
+    caller = hashlib.sha256(api_token.encode()).hexdigest()[:12]
+
+    def _audit_decision(phase, request_id, cid, utterance, outcome, pending_after):
+        if audit is not None:
+            audit.record_decision(request_id=request_id, conversation_id=cid, caller=caller,
+                                  phase=phase, utterance=utterance, outcome=outcome,
+                                  pending_after=pending_after)
+
+    def _audit_lifecycle(event, request_id, cid, device_id, operation):
+        if audit is not None:
+            audit.record_lifecycle(event=event, request_id=request_id, conversation_id=cid,
+                                   caller=caller, device_id=device_id, operation=operation)
 
     def require_auth(authorization: str | None = Header(default=None)) -> None:
         expected = f"Bearer {api_token}"
@@ -85,6 +98,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     cached = store.idempotent_get(st, req.idempotency_key)
                     if cached is not None:
                         return cached
+                old_pending = st.session.pending          # supersede 检测:在 handle 覆盖前捕获
                 deadline = time.monotonic() + request_timeout
                 request_id = uuid.uuid4().hex
                 try:
@@ -95,17 +109,26 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 except (asyncio.TimeoutError, DeadlineExceeded):
                     store.clear_pending(st)
                     st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
-                    return outcome_to_dto(_error_outcome("request timed out"), conversation_id=cid,
+                    err = _error_outcome("request timed out")
+                    _audit_decision("turn", request_id, cid, req.utterance, err, False)
+                    return outcome_to_dto(err, conversation_id=cid,
                                          pending_id=None, expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
                 except Exception as exc:
                     store.clear_pending(st)
                     st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
-                    return outcome_to_dto(_error_outcome(str(exc)), conversation_id=cid,
+                    err = _error_outcome(str(exc))
+                    _audit_decision("turn", request_id, cid, req.utterance, err, False)
+                    return outcome_to_dto(err, conversation_id=cid,
                                          pending_id=None, expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
+                if old_pending is not None:
+                    _audit_lifecycle("superseded", request_id, cid,
+                                     old_pending.decision.device_id, old_pending.decision.operation)
                 store.clear_pending(st)
-                pid = store.issue_pending(st) if (outcome.needs_confirmation or outcome.needs_param) else None
+                pending_after = outcome.needs_confirmation or outcome.needs_param
+                pid = store.issue_pending(st) if pending_after else None
+                _audit_decision("turn", request_id, cid, req.utterance, outcome, pending_after)
                 dto = outcome_to_dto(outcome, conversation_id=cid, pending_id=pid,
                                      expires_at=st.pending_expires_at, request_id=request_id,
                                      registry=ctrl.engine.registry)
@@ -118,7 +141,13 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         st = store.get_state(req.conversation_id)
         async with sem:
             async with st.lock:
+                expiring = st.session.pending
+                is_expired = (st.pending_id == pending_id and st.pending_expires_at is not None
+                              and time.time() > st.pending_expires_at)
                 if not store.take_pending(st, pending_id):
+                    if is_expired and expiring is not None:
+                        _audit_lifecycle("expired", uuid.uuid4().hex, req.conversation_id,
+                                         expiring.decision.device_id, expiring.decision.operation)
                     raise HTTPException(status_code=409, detail="invalid or expired pending_id")
                 deadline = time.monotonic() + request_timeout
                 request_id = uuid.uuid4().hex
@@ -130,7 +159,10 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 except (asyncio.TimeoutError, DeadlineExceeded):
                     store.clear_pending(st)
                     st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
-                    return outcome_to_dto(_error_outcome("request timed out"),
+                    err = _error_outcome("request timed out")
+                    _audit_decision("reply", request_id, req.conversation_id,
+                                    f"{req.kind}:{req.value}", err, False)
+                    return outcome_to_dto(err,
                                          conversation_id=req.conversation_id, pending_id=None,
                                          expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
@@ -139,13 +171,25 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 except Exception as exc:
                     store.clear_pending(st)
                     st.session.cancel()       # 出错确定性清会话态(也给 Plan 3 审计留 cancelled 钩子)
-                    return outcome_to_dto(_error_outcome(str(exc)),
+                    err = _error_outcome(str(exc))
+                    _audit_decision("reply", request_id, req.conversation_id,
+                                    f"{req.kind}:{req.value}", err, False)
+                    return outcome_to_dto(err,
                                          conversation_id=req.conversation_id, pending_id=None,
                                          expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
-                pid = store.issue_pending(st) if (outcome.needs_confirmation or outcome.needs_param) else None
+                pending_after = outcome.needs_confirmation or outcome.needs_param
+                pid = store.issue_pending(st) if pending_after else None
+                _audit_decision("reply", request_id, req.conversation_id,
+                                f"{req.kind}:{req.value}", outcome, pending_after)
                 return outcome_to_dto(outcome, conversation_id=req.conversation_id, pending_id=pid,
                                       expires_at=st.pending_expires_at, request_id=request_id,
                                       registry=ctrl.engine.registry)
+
+    @app.get("/v1/audit", dependencies=[Depends(require_auth)])
+    def get_audit(limit: int = 50) -> dict:
+        if audit is None:
+            return {"records": []}
+        return {"records": audit.recent(limit=limit)}
 
     return app
