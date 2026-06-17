@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 docs/superpowers/
+data/janus_audit.db*
