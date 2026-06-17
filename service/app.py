@@ -93,18 +93,20 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         async with sem:
             try:
                 ctrl = await asyncio.to_thread(_fresh_controller)
-                sp = getattr(ctrl.engine, "state_provider", None)
-                states = await asyncio.to_thread(sp) if sp else []
+                # state_provider 再打一次 HA 取实时状态:与 registry 构建分两次调用,
+                # 是低频端点上的有意取舍,非 bug。
+                state_provider = getattr(ctrl.engine, "state_provider", None)
+                ha_states = await asyncio.to_thread(state_provider) if state_provider else []
             except Exception as exc:                       # fail-closed
                 raise HTTPException(status_code=502, detail=f"registry build failed: {exc}")
         reg = ctrl.engine.registry
-        by_id = {s["entity_id"]: s for s in states
+        by_id = {s["entity_id"]: s for s in ha_states
                  if isinstance(s, dict) and s.get("entity_id")}
         out = []
         for did in reg.device_ids():
             dev = reg.get(did)
-            st = by_id.get(did)
-            state = device_state(dev.type, st.get("state", ""), st.get("attributes") or {}) if st else {}
+            raw = by_id.get(did)
+            state = device_state(dev.type, raw.get("state", ""), raw.get("attributes") or {}) if raw else {}
             out.append(device_to_dto(did, dev, state))
         return {"devices": out}
 

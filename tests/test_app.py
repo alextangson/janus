@@ -369,3 +369,23 @@ def test_devices_returns_capabilities_and_state():
     assert dev["capabilities"]["turn_off"]["dangerous"] is False
     assert dev["state"] == {"on": True}               # FakeHA: light.a state="on",无 brightness
     assert "device_id" in dev                         # 分组用(FakeHA 下为 None)
+
+
+def test_devices_empty_state_when_no_ha_state():
+    # 设备在 registry 但 state_provider 取不到对应 state → state=={} 兜底(引擎无 state_provider 属性)
+    reg = Registry({"light.x": Device(name="灯X", type="light", area="厅",
+                                      operations={"turn_off": OperationSpec()})})
+
+    class RegOnlyEngine:
+        registry = reg                       # 无 state_provider 属性 → getattr 返回 None → ha_states=[]
+
+    class RegOnlyCtrl:
+        engine = RegOnlyEngine()
+
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     controller_factory=lambda deadline=None: RegOnlyCtrl())
+    r = TestClient(app).get("/v1/devices", headers=_auth())
+    dev = next(d for d in r.json()["devices"] if d["id"] == "light.x")
+    assert dev["state"] == {}
+    assert dev["capabilities"]["turn_off"]["dangerous"] is False
