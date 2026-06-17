@@ -231,7 +231,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     cached = store.idempotent_get(st, req.idempotency_key)
                     if cached is not None:
                         return cached
-                old_pending = st.session.pending
+                old_pending = st.session.pending          # supersede 检测:在 control 覆盖前捕获
                 deadline = time.monotonic() + request_timeout
                 request_id = uuid.uuid4().hex
                 try:

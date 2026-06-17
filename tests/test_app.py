@@ -472,3 +472,4 @@ def test_control_emits_audit_record():
     rows = audit.recent(limit=10)
     assert rows and rows[0]["phase"] == "control" and rows[0]["event"] == "executed"
     assert rows[0]["device_id"] == "light.a" and rows[0]["operation"] == "turn_off"
+    assert rows[0]["utterance"] == "light.a.turn_off"
