@@ -33,6 +33,14 @@ class ReplyReq(BaseModel):
     value: bool | int | str
 
 
+class ControlReq(BaseModel):
+    device_id: str
+    operation: str
+    params: dict[str, bool | int | str] = {}
+    conversation_id: str | None = None
+    idempotency_key: str | None = None
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -211,6 +219,56 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 return outcome_to_dto(outcome, conversation_id=req.conversation_id, pending_id=pid,
                                       expires_at=st.pending_expires_at, request_id=request_id,
                                       registry=ctrl.engine.registry)
+
+    @app.post("/v1/control", dependencies=[Depends(require_auth)])
+    async def control(req: ControlReq) -> dict:
+        cid = req.conversation_id or store.new_conversation_id()
+        st = store.get_state(cid)
+        descriptor = f"{req.device_id}.{req.operation}"      # 审计 utterance:无 NL,用结构化标识
+        async with sem:
+            async with st.lock:
+                if req.idempotency_key:
+                    cached = store.idempotent_get(st, req.idempotency_key)
+                    if cached is not None:
+                        return cached
+                old_pending = st.session.pending
+                deadline = time.monotonic() + request_timeout
+                request_id = uuid.uuid4().hex
+                try:
+                    ctrl = await asyncio.to_thread(_fresh_controller, deadline)
+                    outcome = await asyncio.wait_for(
+                        asyncio.to_thread(st.session.control, ctrl, req.device_id,
+                                          req.operation, dict(req.params)),
+                        timeout=request_timeout)
+                except (asyncio.TimeoutError, DeadlineExceeded):
+                    store.clear_pending(st)
+                    st.session.cancel()
+                    err = _error_outcome("request timed out")
+                    _audit_decision("control", request_id, cid, descriptor, err, False)
+                    return outcome_to_dto(err, conversation_id=cid, pending_id=None,
+                                         expires_at=None, request_id=request_id,
+                                         registry=_empty_registry())
+                except Exception as exc:
+                    store.clear_pending(st)
+                    st.session.cancel()
+                    err = _error_outcome(str(exc))
+                    _audit_decision("control", request_id, cid, descriptor, err, False)
+                    return outcome_to_dto(err, conversation_id=cid, pending_id=None,
+                                         expires_at=None, request_id=request_id,
+                                         registry=_empty_registry())
+                if old_pending is not None:
+                    _audit_lifecycle("superseded", request_id, cid,
+                                     old_pending.decision.device_id, old_pending.decision.operation)
+                store.clear_pending(st)
+                pending_after = outcome.needs_confirmation or outcome.needs_param
+                pid = store.issue_pending(st) if pending_after else None
+                _audit_decision("control", request_id, cid, descriptor, outcome, pending_after)
+                dto = outcome_to_dto(outcome, conversation_id=cid, pending_id=pid,
+                                     expires_at=st.pending_expires_at, request_id=request_id,
+                                     registry=ctrl.engine.registry)
+                if req.idempotency_key:
+                    store.idempotent_put(st, req.idempotency_key, dto)
+                return dto
 
     @app.get("/v1/audit", dependencies=[Depends(require_auth)])
     def get_audit(limit: int = 50) -> dict:

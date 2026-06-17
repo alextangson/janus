@@ -389,3 +389,86 @@ def test_devices_empty_state_when_no_ha_state():
     dev = next(d for d in r.json()["devices"] if d["id"] == "light.x")
     assert dev["state"] == {}
     assert dev["capabilities"]["turn_off"]["dangerous"] is False
+
+
+# ── Phase B / Task 4: POST /v1/control ──────────────────────────────────────
+
+def test_control_allow_executes_via_ha():
+    resolved = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha = _exec_app(None, resolved)
+    r = c.post("/v1/control", headers=_auth(),
+               json={"device_id": "light.a", "operation": "turn_off", "params": {}})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "executed" and body["conversation_id"]
+    assert ha.calls == [("light", "turn_off", "light.a", {})]
+
+
+def test_control_requires_auth():
+    resolved = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, _ = _exec_app(None, resolved)
+    assert c.post("/v1/control",
+                  json={"device_id": "light.a", "operation": "turn_off"}).status_code == 401
+
+
+def test_control_dangerous_issues_pending_then_reply_executes():
+    # 核心:控制的危险确认复用既有 /v1/pending/{id}/reply,零新增 reply 逻辑
+    resolved = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                        operation="unlock", reason="敏感")
+    c, ha = _exec_app(None, resolved)
+    body = c.post("/v1/control", headers=_auth(),
+                  json={"device_id": "lock.door", "operation": "unlock", "params": {}}).json()
+    assert body["status"] == "needs_confirmation"
+    assert body["pending_id"] and body["expires_at"]
+    assert ha.calls == []
+    cid, pid = body["conversation_id"], body["pending_id"]
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.json()["status"] == "executed"
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_control_reject_no_ha_call():
+    resolved = Decision(verdict="reject", stage="feasibility", device_id="light.a",
+                        operation="turn_on", reason="超出范围", params={})
+    c, ha = _exec_app(None, resolved)
+    body = c.post("/v1/control", headers=_auth(),
+                  json={"device_id": "light.a", "operation": "turn_on",
+                        "params": {"brightness_pct": 999}}).json()
+    assert body["status"] == "rejected"
+    assert ha.calls == []
+
+
+def test_control_idempotent_replay_no_double_execute():
+    resolved = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha = _exec_app(None, resolved)
+    j = {"device_id": "light.a", "operation": "turn_off", "idempotency_key": "k1"}
+    cid = c.post("/v1/control", headers=_auth(), json=j).json()["conversation_id"]
+    c.post("/v1/control", headers=_auth(), json={**j, "conversation_id": cid})
+    assert len(ha.calls) == 1
+
+
+def test_control_timeout_returns_error_no_ha_call():
+    import asyncio
+    class HangingEngine(FakeEngine):
+        def decide_resolved(self, device_id, operation, params=None):
+            raise asyncio.TimeoutError()
+    ha = StubHA()
+    ctrl = Controller(HangingEngine(registry=_reg_for_turn()), ha)
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     controller_factory=lambda deadline=None: ctrl)
+    body = TestClient(app).post("/v1/control", headers=_auth(),
+                                json={"device_id": "light.a", "operation": "turn_off"}).json()
+    assert body["status"] == "error" and body["pending_id"] is None
+    assert ha.calls == []
+
+
+def test_control_emits_audit_record():
+    resolved = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    c, ha, audit = _exec_app_audited(None, resolved)
+    c.post("/v1/control", headers=_auth(),
+           json={"device_id": "light.a", "operation": "turn_off"})
+    rows = audit.recent(limit=10)
+    assert rows and rows[0]["phase"] == "control" and rows[0]["event"] == "executed"
+    assert rows[0]["device_id"] == "light.a" and rows[0]["operation"] == "turn_off"
