@@ -358,3 +358,14 @@ def test_cors_default_wildcard():
     c = TestClient(app)
     r = c.get("/health", headers={"Origin": "http://anything:9999"})
     assert r.headers.get("access-control-allow-origin") == "*"
+
+
+def test_devices_returns_capabilities_and_state():
+    r = _client().get("/v1/devices", headers=_auth())
+    assert r.status_code == 200
+    dev = next(d for d in r.json()["devices"] if d["id"] == "light.a")
+    assert dev["name"] == "主灯" and dev["type"] == "light"
+    assert "turn_off" in dev["capabilities"]          # FakeHA 暴露 light.turn_off/turn_on
+    assert dev["capabilities"]["turn_off"]["dangerous"] is False
+    assert dev["state"] == {"on": True}               # FakeHA: light.a state="on",无 brightness
+    assert "device_id" in dev                         # 分组用(FakeHA 下为 None)

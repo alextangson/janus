@@ -15,6 +15,7 @@ from gatekeeper.models import Decision
 from gatekeeper.registry import Registry
 
 from .deadline import DeadlineExceeded, DeadlineHAClient
+from .device_dto import device_state, device_to_dto
 from .dto import outcome_to_dto
 from .engine_factory import build_fresh_controller
 from .sessions import ConversationStore
@@ -92,11 +93,20 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         async with sem:
             try:
                 ctrl = await asyncio.to_thread(_fresh_controller)
+                sp = getattr(ctrl.engine, "state_provider", None)
+                states = await asyncio.to_thread(sp) if sp else []
             except Exception as exc:                       # fail-closed
                 raise HTTPException(status_code=502, detail=f"registry build failed: {exc}")
         reg = ctrl.engine.registry
-        return {"devices": [{"id": did, "name": reg.get(did).name, "area": reg.get(did).area}
-                            for did in reg.device_ids()]}
+        by_id = {s["entity_id"]: s for s in states
+                 if isinstance(s, dict) and s.get("entity_id")}
+        out = []
+        for did in reg.device_ids():
+            dev = reg.get(did)
+            st = by_id.get(did)
+            state = device_state(dev.type, st.get("state", ""), st.get("attributes") or {}) if st else {}
+            out.append(device_to_dto(did, dev, state))
+        return {"devices": out}
 
     @app.post("/v1/turn", dependencies=[Depends(require_auth)])
     async def turn(req: TurnReq) -> dict:
