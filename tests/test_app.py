@@ -333,3 +333,28 @@ def test_reply_invalid_kind_400_audits_failed():
     events = [row["event"] for row in audit.recent(limit=10)]
     assert "failed" in events             # 协议错也可诊断
     assert ha.calls == []
+
+
+def test_cors_allows_configured_browser_origin():
+    # 浏览器 web app 跨域调用:配置的源拿到 CORS 头,预检通过
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0,
+                     cors_origins=["http://localhost:5180"])
+    c = TestClient(app)
+    r = c.get("/health", headers={"Origin": "http://localhost:5180"})
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:5180"
+    pre = c.options("/v1/turn", headers={
+        "Origin": "http://localhost:5180",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type",
+    })
+    assert pre.status_code in (200, 204)
+    assert pre.headers.get("access-control-allow-origin") == "http://localhost:5180"
+
+
+def test_cors_default_wildcard():
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0)
+    c = TestClient(app)
+    r = c.get("/health", headers={"Origin": "http://anything:9999"})
+    assert r.headers.get("access-control-allow-origin") == "*"

@@ -7,6 +7,7 @@ import time
 import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from gatekeeper.controller import Outcome
@@ -43,10 +44,19 @@ def _empty_registry() -> Registry:
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                api_token: str, request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
-               controller_factory=None, audit=None) -> FastAPI:
+               controller_factory=None, audit=None,
+               cors_origins: list[str] | None = None) -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
     app = FastAPI(title="Janus", version="1")
+    # Web app(浏览器)跨域调用需要 CORS。Janus 用 bearer(非 cookie),故 allow_origins=*
+    # 对这种 API 安全(攻击页拿不到 token);可用 JANUS_CORS_ORIGINS 收紧到具体源。
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins or ["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
     store = store or ConversationStore()
     sem = asyncio.Semaphore(max_concurrency)
     caller = hashlib.sha256(api_token.encode()).hexdigest()[:12]

@@ -17,3 +17,7 @@ MAX_CONCURRENCY = int(os.environ.get("JANUS_MAX_CONCURRENCY", "8"))
 MAX_SESSIONS = int(os.environ.get("JANUS_MAX_SESSIONS", "1000"))
 MAX_BODY_BYTES = int(os.environ.get("JANUS_MAX_BODY_BYTES", "16384"))
 AUDIT_DB = os.environ.get("JANUS_AUDIT_DB", "data/janus_audit.db")
+
+# 浏览器跨域:逗号分隔的允许源;默认 "*"(bearer API 安全)。收紧示例:
+# JANUS_CORS_ORIGINS="http://localhost:5180,http://192.168.3.89:5180"
+CORS_ORIGINS = [o.strip() for o in os.environ.get("JANUS_CORS_ORIGINS", "*").split(",") if o.strip()]
