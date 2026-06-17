@@ -58,7 +58,8 @@ class AuditSink:
         try:
             rec = build_record(utterance, outcome, pending_after)
             d = asdict(rec)
-            event = _EVENT_RENAME.get(display_status(d), display_status(d))
+            status = display_status(d)
+            event = _EVENT_RENAME.get(status, status)
             self._insert({
                 "event": event, "phase": phase, "utterance": rec.utterance,
                 "verdict": rec.verdict, "stage": rec.stage, "device_id": rec.device_id,

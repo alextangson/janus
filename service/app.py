@@ -166,7 +166,11 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                                          conversation_id=req.conversation_id, pending_id=None,
                                          expires_at=None, request_id=request_id,
                                          registry=_empty_registry())
-                except ValueError as exc:
+                except ValueError as exc:    # 非法 kind:pending 已被 take_pending 烧,清会话态 + 留痕
+                    store.clear_pending(st)
+                    st.session.cancel()
+                    _audit_decision("reply", request_id, req.conversation_id,
+                                    f"{req.kind}:{req.value}", _error_outcome(str(exc)), False)
                     raise HTTPException(status_code=400, detail=str(exc))
                 except Exception as exc:
                     store.clear_pending(st)

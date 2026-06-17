@@ -319,3 +319,17 @@ def test_reply_deny_audits_cancelled():
     events = [r["event"] for r in audit.recent(limit=10)]
     assert "cancelled" in events
     assert ha.calls == []                # 否决不执行
+
+
+def test_reply_invalid_kind_400_audits_failed():
+    # 非法 kind:400,且留审计痕迹(failed),pending 被烧不留悬空
+    dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                   operation="unlock", reason="敏感")
+    c, ha, audit = _exec_app_audited(dec)
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": "开锁"}).json()
+    r = c.post(f"/v1/pending/{turn['pending_id']}/reply", headers=_auth(),
+               json={"conversation_id": turn["conversation_id"], "kind": "bogus", "value": True})
+    assert r.status_code == 400
+    events = [row["event"] for row in audit.recent(limit=10)]
+    assert "failed" in events             # 协议错也可诊断
+    assert ha.calls == []
