@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from gatekeeper.controller import Outcome
 from gatekeeper.models import Decision
@@ -41,6 +41,10 @@ class ControlReq(BaseModel):
     idempotency_key: str | None = None
 
 
+class SettingsReq(BaseModel):
+    tau: float = Field(ge=0.0, le=1.0)
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -63,10 +67,11 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins or ["*"],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Authorization", "Content-Type"],
     )
     store = store or ConversationStore()
+    tau_box = {"value": tau}
     sem = asyncio.Semaphore(max_concurrency)
     caller = hashlib.sha256(api_token.encode()).hexdigest()[:12]
 
@@ -90,7 +95,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         if controller_factory is not None:
             return controller_factory(deadline=deadline)
         ha = DeadlineHAClient(ha_client, deadline) if deadline is not None else ha_client
-        return build_fresh_controller(ha, llm_client, backend, model, tau)
+        return build_fresh_controller(ha, llm_client, backend, model, tau_box["value"])
 
     @app.get("/health")
     def health() -> dict:
@@ -269,6 +274,15 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 if req.idempotency_key:
                     store.idempotent_put(st, req.idempotency_key, dto)
                 return dto
+
+    @app.get("/v1/settings", dependencies=[Depends(require_auth)])
+    def get_settings() -> dict:
+        return {"tau": tau_box["value"]}
+
+    @app.put("/v1/settings", dependencies=[Depends(require_auth)])
+    def put_settings(req: SettingsReq) -> dict:
+        tau_box["value"] = req.tau
+        return {"tau": tau_box["value"]}
 
     @app.get("/v1/audit", dependencies=[Depends(require_auth)])
     def get_audit(limit: int = 50) -> dict:

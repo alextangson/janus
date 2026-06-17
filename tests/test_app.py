@@ -473,3 +473,44 @@ def test_control_emits_audit_record():
     assert rows and rows[0]["phase"] == "control" and rows[0]["event"] == "executed"
     assert rows[0]["device_id"] == "light.a" and rows[0]["operation"] == "turn_off"
     assert rows[0]["utterance"] == "light.a.turn_off"
+
+
+# ── Phase B / Task 5: GET|PUT /v1/settings ──────────────────────────────────
+
+def test_get_settings_returns_tau():
+    r = _client().get("/v1/settings", headers=_auth())
+    assert r.status_code == 200 and r.json()["tau"] == 0.7
+
+
+def test_put_settings_updates_and_persists_in_memory():
+    c = _client()
+    r = c.put("/v1/settings", headers=_auth(), json={"tau": 0.3})
+    assert r.status_code == 200 and r.json()["tau"] == 0.3
+    assert c.get("/v1/settings", headers=_auth()).json()["tau"] == 0.3
+
+
+def test_put_settings_rejects_out_of_range():
+    assert _client().put("/v1/settings", headers=_auth(), json={"tau": 1.5}).status_code == 422
+    assert _client().put("/v1/settings", headers=_auth(), json={"tau": -0.1}).status_code == 422
+
+
+def test_settings_requires_auth():
+    c = _client()
+    assert c.get("/v1/settings").status_code == 401
+    assert c.put("/v1/settings", json={"tau": 0.5}).status_code == 401
+
+
+def test_put_settings_changes_tau_used_by_fresh_controller(monkeypatch):
+    # τ 必须真生效:改 τ 后,下次重建的 controller 用新值(holder 非冻结常量)
+    from service.engine_factory import build_fresh_controller as real_build
+    captured = []
+    def spy(ha, llm, backend, model, tau):
+        captured.append(tau)
+        return real_build(ha, llm, backend, model, tau)
+    monkeypatch.setattr("service.app.build_fresh_controller", spy)
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", request_timeout=5.0)
+    c = TestClient(app)
+    c.put("/v1/settings", headers=_auth(), json={"tau": 0.2})
+    c.get("/v1/devices", headers=_auth())      # 触发一次 fresh controller 构建
+    assert captured[-1] == 0.2
