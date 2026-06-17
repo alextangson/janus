@@ -150,3 +150,54 @@ def test_cancel_clears_pending():
     assert sess.pending is not None
     sess.cancel()
     assert sess.pending is None
+
+
+def test_controller_control_allow_executes():
+    resolved = _allow("light.a", "turn_off")
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(resolved=resolved, registry=_reg()), ha)
+    out = ctrl.control("light.a", "turn_off", {})
+    assert out.executed is True
+    assert ha.calls == [("light", "turn_off", "light.a", {})]
+
+
+def test_controller_control_dangerous_needs_confirmation():
+    resolved = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                        operation="unlock", params={}, reason="敏感")
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(resolved=resolved, registry=_reg()), ha)
+    out = ctrl.control("lock.door", "unlock", {})
+    assert out.needs_confirmation is True and out.executed is False
+    assert ha.calls == []
+
+
+def test_controller_control_reject_does_nothing():
+    resolved = Decision(verdict="reject", stage="feasibility", device_id="light.a",
+                        operation="turn_on", params={}, reason="超出范围")
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(resolved=resolved, registry=_reg()), ha)
+    out = ctrl.control("light.a", "turn_on", {"brightness_pct": 999})
+    assert out.executed is False and out.needs_confirmation is False
+    assert ha.calls == []
+
+
+def test_session_control_dangerous_then_reply_confirm_executes():
+    danger = Decision(verdict="confirm", stage="safety", device_id="lock.door",
+                      operation="unlock", params={}, reason="敏感")
+    ctrl, ha = _ctrl(resolved=danger)
+    sess = Session()
+    out = sess.control(ctrl, "lock.door", "unlock", {})
+    assert out.needs_confirmation is True
+    assert sess.pending is out and ha.calls == []
+    done = sess.reply(ctrl, "confirm", True)
+    assert done.executed is True
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+    assert sess.pending is None
+
+
+def test_session_control_allow_executes_and_clears_pending():
+    ctrl, ha = _ctrl(resolved=_allow("light.a", "turn_off"))
+    sess = Session()
+    out = sess.control(ctrl, "light.a", "turn_off", {})
+    assert out.executed is True and sess.pending is None
+    assert ha.calls == [("light", "turn_off", "light.a", {})]

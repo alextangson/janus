@@ -3,7 +3,7 @@ import math
 import pytest
 
 from gatekeeper.engine import Engine
-from gatekeeper.models import Device, OperationSpec, ParseResult
+from gatekeeper.models import Device, OperationSpec, ParamSpec, ParseResult
 from gatekeeper.registry import Registry
 
 from tests._helpers import FakeParser, RaisingParser, ValidatingParser
@@ -297,3 +297,20 @@ def test_decide_resolved_missing_required_asks(registry):
     # 消歧后链式缺参:choose → decide_resolved 也应反问
     d = _engine(registry, _pr()).decide_resolved("climate.living_room", "set_temperature", {})
     assert (d.verdict, d.stage, d.missing_param) == ("ask", "param", "temperature")
+
+
+def test_decide_resolved_rejects_out_of_range():
+    reg = Registry({"light.a": Device(name="灯", type="light", area="厅",
+        operations={"turn_on": OperationSpec(params={
+            "brightness_pct": ParamSpec(type="int", min=0, max=100)})})})
+    eng = Engine(parser=object(), registry=reg, tau=0.7)
+    d = eng.decide_resolved("light.a", "turn_on", {"brightness_pct": 200})
+    assert d.verdict == "reject" and d.stage == "feasibility"
+
+
+def test_decide_resolved_dangerous_confirms():
+    reg = Registry({"lock.door": Device(name="门锁", type="lock", area="门",
+        operations={"unlock": OperationSpec(dangerous=True)})})
+    eng = Engine(parser=object(), registry=reg, tau=0.7)
+    d = eng.decide_resolved("lock.door", "unlock", {})
+    assert d.verdict == "confirm" and d.stage == "safety"
