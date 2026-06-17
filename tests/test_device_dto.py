@@ -73,3 +73,20 @@ def test_device_to_dto_shape_no_entity_id_leak_beyond_id():
                          "turn_off": {"dangerous": False, "params": {}}},
         "state": {"on": True},
     }
+
+
+def test_state_cover_closed():
+    assert device_state("cover", "closed", {}) == {"open": False}
+
+
+def test_state_cover_transitional_is_open():
+    # 约定:opening/closing/stopped 均算 open(非 closed),与 queries.py 一致
+    assert device_state("cover", "closing", {}) == {"open": True}
+
+
+def test_state_valve_open_with_position():
+    assert device_state("valve", "open", {"current_position": 30}) == {"open": True, "position": 30}
+
+
+def test_state_lock_unlocked():
+    assert device_state("lock", "unlocked", {}) == {"locked": False}

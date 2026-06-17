@@ -19,7 +19,9 @@ def device_state(domain: str, state: str, attrs: dict) -> dict:
         if attrs.get("temperature") is not None:
             out["target_temperature"] = attrs["temperature"]
         return out
-    if domain == "cover":
+    if domain in ("cover", "valve"):
+        # open 指"非 closed"(含 opening/closing/stopped 过渡态),与 queries.py 一致;
+        # 前端需要精确过渡态时另读原始 state。
         out = {"open": state != "closed"}
         if attrs.get("current_position") is not None:
             out["position"] = attrs["current_position"]
@@ -31,16 +33,12 @@ def device_state(domain: str, state: str, attrs: dict) -> dict:
         return out
     if domain == "lock":
         return {"locked": state == "locked"}
-    if domain == "valve":
-        out = {"open": state != "closed"}
-        if attrs.get("current_position") is not None:
-            out["position"] = attrs["current_position"]
-        return out
     return {"state": state}
 
 
 def capabilities_to_dto(device) -> dict:
-    """Device.operations → 稳定能力 DTO。显式列字段(绝不裸 model_dump,防内部结构漂移)。"""
+    """Device.operations → 稳定能力 DTO。显式列字段(绝不裸 model_dump,防内部结构漂移)。
+    每个参数字段恒在(无值为 null),前端绑定固定结构。"""
     return {
         op_name: {
             "dangerous": op.dangerous,
