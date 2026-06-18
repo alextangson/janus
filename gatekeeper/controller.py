@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from .models import Decision
 from .phrasing import _PARAM_ZH, describe_action
-from .queries import _HVAC_ZH
+from .queries import _ENUM_ZH
 
 
 @dataclass
@@ -104,7 +104,7 @@ class Controller:
             spec = device.operations[decision.operation].params[decision.missing_param]
             label = _PARAM_ZH.get(decision.missing_param, decision.missing_param)
             if spec.type == "enum":
-                opts = "/".join(_HVAC_ZH.get(v, v) for v in (spec.enum or []))
+                opts = "/".join(_ENUM_ZH.get(v, v) for v in (spec.enum or []))
                 return f"要把「{device.name}」的{label}设成哪种?({opts})"
             if spec.min is not None and spec.max is not None:
                 return f"要把「{device.name}」的{label}设成多少?({spec.min}–{spec.max}{spec.unit or ''})"

@@ -1,4 +1,5 @@
-from gatekeeper.replies import zh_to_int, extract_int
+from gatekeeper.replies import zh_to_int, extract_int, coerce_param
+from gatekeeper.models import ParamSpec
 
 
 def test_parse_basic_zh_numerals():
@@ -88,3 +89,15 @@ def test_choice_index_out_of_range_or_unparseable():
     assert choice_index("8", 2) is None       # 越界
     assert choice_index("第五个", 2) is None    # 越界
     assert choice_index("随便", 2) is None
+
+
+def test_coerce_enum_matches_chinese_fan_value():
+    spec = ParamSpec(type="enum", enum=["auto", "low", "medium", "high"], required=True)
+    assert coerce_param("调到高", spec) == "high"
+    assert coerce_param("低风", spec) == "low"
+
+
+def test_coerce_enum_matches_chinese_preset_value():
+    spec = ParamSpec(type="enum", enum=["none", "eco", "sleep", "boost"], required=True)
+    assert coerce_param("睡眠模式", spec) == "sleep"
+    assert coerce_param("节能", spec) == "eco"
