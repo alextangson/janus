@@ -254,3 +254,11 @@ def test_climate_secondary_op_gated_by_service():
             e["services"].pop("set_swing_mode", None)
     c = map_ha(_states(), services)["climate.living_room"]
     assert "set_swing_mode" not in c.operations
+
+
+def test_preset_can_be_marked_dangerous_per_entity():
+    overrides = {"climate.living_room": {"set_preset_mode": True}}
+    c = map_ha(_states(), _services(), overrides=overrides)["climate.living_room"]
+    assert c.operations["set_preset_mode"].dangerous is True
+    # 未覆盖的操作仍非危险
+    assert c.operations["set_fan_mode"].dangerous is False
