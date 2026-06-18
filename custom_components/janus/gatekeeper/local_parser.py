@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from openai import OpenAI
 
 from .models import ParseResult
 from .parser import _safe_context, coerce_parse
-from .prompts import SYSTEM_PROMPT, TOOL_DESC, TOOL_NAME, build_user_prompt, parse_schema
+from .prompts import SYSTEM_PROMPT, TOOL_DESC, TOOL_NAME, build_user_prompt, current_season, parse_schema
 from .registry import Registry
 
 
@@ -31,7 +32,8 @@ class LocalParser:
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_user_prompt(
-                    self.registry, instruction, _safe_context(self.context_provider))},
+                    self.registry, instruction, _safe_context(self.context_provider),
+                    season=current_season(datetime.now().month))},
             ],
             tools=[{"type": "function", "function": {
                 "name": TOOL_NAME, "description": TOOL_DESC, "parameters": parse_schema()}}],

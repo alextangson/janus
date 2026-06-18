@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from anthropic import Anthropic
 
 from .models import ParseResult
-from .prompts import SYSTEM_PROMPT, TOOL_NAME, anthropic_tool, build_user_prompt
+from .prompts import SYSTEM_PROMPT, TOOL_NAME, anthropic_tool, build_user_prompt, current_season
 from .registry import Registry
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,8 @@ class ClaudeParser:
         self.context_provider = context_provider
 
     def parse(self, instruction: str) -> ParseResult:
-        prompt = build_user_prompt(self.registry, instruction, _safe_context(self.context_provider))
+        prompt = build_user_prompt(self.registry, instruction, _safe_context(self.context_provider),
+                                   season=current_season(datetime.now().month))
         resp = self._create_with_retry(prompt)
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == TOOL_NAME:
