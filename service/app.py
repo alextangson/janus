@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,12 +85,22 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                controller_factory=None, audit=None,
                cors_origins: list[str] | None = None,
                schedule_store: ScheduleStore | None = None,
-               default_tz: str = "Asia/Shanghai") -> FastAPI:
+               default_tz: str = "Asia/Shanghai", scheduler=None) -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
     # 向后兼容:仅给 dangerous_pin(块 A)→ 构 env-only 内存 store(无持久路径,管理端点禁用)
     pin_store = pin_store or PinStore(env_pin=dangerous_pin, path=None)
-    app = FastAPI(title="Janus", version="1")
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        # scheduler is None(默认/现有测试)→ 全程 no-op,绝不起后台循环。
+        if scheduler is not None:
+            scheduler.start()  # 自门控 owner 锁:只有持锁者真正跑循环
+        yield
+        if scheduler is not None:
+            await scheduler.stop()
+
+    app = FastAPI(title="Janus", version="1", lifespan=_lifespan)
     # Web app(浏览器)跨域调用需要 CORS。Janus 用 bearer(非 cookie),故 allow_origins=*
     # 对这种 API 安全(攻击页拿不到 token);可用 JANUS_CORS_ORIGINS 收紧到具体源。
     app.add_middleware(
