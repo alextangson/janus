@@ -43,8 +43,18 @@ def test_climate_room_temp_omitted_when_none():
 
 def test_weather_and_sensor_lines():
     out = build_context(_states(), _registry())
-    assert "- 室外(weather.home): partlycloudy,14.0°C,湿度 74%" in out
+    assert "- 室外(weather.home): partlycloudy,14.0°C,湿度 74%（室外参考,非室内体感）" in out
     assert "- 卧室温度: 22.5 °C" in out
+
+
+def test_weather_flags_default_seattle_location():
+    out = build_context(_states(), _registry(), home_coords=(47.60621, -122.33207))
+    assert "位置疑未配置" in out
+
+
+def test_weather_clean_for_real_location():
+    out = build_context(_states(), _registry(), home_coords=(22.527, 113.897))
+    assert "位置疑未配置" not in out and "非室内体感" in out
 
 
 def test_missing_environment_degrades():

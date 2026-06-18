@@ -26,11 +26,13 @@ def build_fresh_controller(ha_client, llm_client, backend: str, model: str, tau:
     任一 HA 拉取失败 → 异常冒泡(fail-closed),调用方据此返回 error,绝不退回旧注册表。
     ha_client 可为 DeadlineHAClient 包装实例(执行经它,故死线生效)。"""
     states, services = ha_client.fetch()
-    snap = build_registry_snapshot(*ha_client.fetch_registries(), config=ha_client.fetch_config())
+    config = ha_client.fetch_config()
+    snap = build_registry_snapshot(*ha_client.fetch_registries(), config=config)
     reg = Registry.from_ha(states, services, snapshot=snap)
+    home_coords = (config.get("latitude"), config.get("longitude")) if isinstance(config, dict) else None
 
     def context_provider() -> str:
-        return build_context(ha_client.fetch()[0], reg)
+        return build_context(ha_client.fetch()[0], reg, home_coords=home_coords)
 
     if backend == "local":
         from gatekeeper.local_parser import LocalParser
