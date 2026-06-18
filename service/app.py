@@ -18,6 +18,7 @@ from .deadline import DeadlineExceeded, DeadlineHAClient
 from .device_dto import device_state, device_to_dto
 from .dto import outcome_to_dto
 from .engine_factory import build_fresh_controller
+from .pin_store import PinStore
 from .sessions import ConversationStore
 
 
@@ -46,6 +47,11 @@ class SettingsReq(BaseModel):
     tau: float = Field(ge=0.0, le=1.0)
 
 
+class SecurityPinReq(BaseModel):
+    current_pin: str = ""
+    new_pin: str
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -56,12 +62,15 @@ def _empty_registry() -> Registry:
 
 
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
-               api_token: str, dangerous_pin: str = "", request_timeout: float = 30.0,
+               api_token: str, dangerous_pin: str = "", pin_store: PinStore | None = None,
+               request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
                controller_factory=None, audit=None,
                cors_origins: list[str] | None = None) -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
+    # 向后兼容:仅给 dangerous_pin(块 A)→ 构 env-only 内存 store(无持久路径,管理端点禁用)
+    pin_store = pin_store or PinStore(env_pin=dangerous_pin, path=None)
     app = FastAPI(title="Janus", version="1")
     # Web app(浏览器)跨域调用需要 CORS。Janus 用 bearer(非 cookie),故 allow_origins=*
     # 对这种 API 安全(攻击页拿不到 token);可用 JANUS_CORS_ORIGINS 收紧到具体源。
@@ -94,7 +103,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
 
     def _requires_pin(outcome) -> bool:
         # 危险操作 + 配了 PIN 的 needs_confirmation → 客户端须收集 PIN
-        return bool(dangerous_pin) and outcome.needs_confirmation and outcome.decision.dangerous
+        return pin_store.is_configured() and outcome.needs_confirmation and outcome.decision.dangerous
 
     def _fresh_controller(deadline: float | None = None):
         if controller_factory is not None:
@@ -194,10 +203,10 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 # 危险操作第二因子:对危险 confirm(approve)强制 PIN。bool(req.value) 与 controller
                 # approved=bool(value) 一致,堵 "1"/"yes" 绕过;按 decision.dangerous 非 stage,堵
                 # 危险且低置信/推断 绕过。pending 已被 take_pending 烧 → 错 PIN 须重发 control(防爆破)。
-                needs_pin = (bool(dangerous_pin) and expiring is not None
+                needs_pin = (pin_store.is_configured() and expiring is not None
                              and expiring.decision.dangerous
                              and req.kind == "confirm" and bool(req.value))
-                if needs_pin and not (req.pin and hmac.compare_digest(req.pin, dangerous_pin)):
+                if needs_pin and not pin_store.verify(req.pin):
                     store.clear_pending(st)
                     st.session.cancel()      # take_pending 只清 id,这里清 session.pending 防 stale
                     err = _error_outcome("PIN 校验失败")
@@ -306,5 +315,28 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         if audit is None:
             return {"records": []}
         return {"records": audit.recent(limit=limit)}
+
+    @app.get("/v1/security/pin", dependencies=[Depends(require_auth)])
+    def get_security_pin() -> dict:
+        return {"configured": pin_store.is_configured()}
+
+    @app.put("/v1/security/pin", dependencies=[Depends(require_auth)])
+    def put_security_pin(req: SecurityPinReq) -> dict:
+        # 无持久路径(env-only/向后兼容)→ 管理禁用
+        if not pin_store.has_durable_path():
+            raise HTTPException(status_code=501, detail="PIN management not available")
+        # 无活跃 PIN → 不可从 app 凭空设(消除接管窗口);须先服务端 env 引导
+        if not pin_store.is_configured():
+            raise HTTPException(status_code=409, detail="no PIN to rotate; bootstrap JANUS_DANGEROUS_PIN first")
+        if pin_store.change_locked() > 0:
+            raise HTTPException(status_code=429, detail="too many attempts; locked")
+        if not pin_store.verify_for_change(req.current_pin):
+            err = _error_outcome("PIN 改密旧 PIN 校验失败")
+            _audit_decision("security", uuid.uuid4().hex, "", "pin_change", err, False)
+            raise HTTPException(status_code=403, detail="current PIN incorrect")
+        if len(req.new_pin) < 6:
+            raise HTTPException(status_code=400, detail="new PIN must be at least 6 characters")
+        pin_store.set(req.new_pin)
+        return {"configured": True}
 
     return app

@@ -17,6 +17,7 @@ def main() -> None:
     from .app import create_app
     from .audit import AuditSink
     from .engine_factory import build_shared_clients
+    from .pin_store import PinStore
     from .sessions import ConversationStore
 
     ha_url = os.environ.get("GATEKEEPER_HA_URL", "http://homeassistant.local:8123")
@@ -33,8 +34,9 @@ def main() -> None:
     store = ConversationStore(pending_ttl=svc.PENDING_TTL_S, idempotency_ttl=svc.IDEMPOTENCY_TTL_S,
                               max_sessions=svc.MAX_SESSIONS)
     audit = AuditSink(svc.AUDIT_DB)
+    pin_store = PinStore(env_pin=svc.DANGEROUS_PIN, path=svc.SECURITY_FILE)
     app = create_app(ha_client=ha_client, llm_client=llm_client, backend=backend, model=MODEL,
-                     tau=tau, api_token=svc.API_TOKEN, dangerous_pin=svc.DANGEROUS_PIN,
+                     tau=tau, api_token=svc.API_TOKEN, pin_store=pin_store,
                      request_timeout=svc.REQUEST_TIMEOUT_S,
                      max_concurrency=svc.MAX_CONCURRENCY, store=store, audit=audit,
                      cors_origins=svc.CORS_ORIGINS)

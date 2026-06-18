@@ -149,6 +149,76 @@ def test_reply_confirm_executes_after_pending():
     assert ha.calls == [("lock", "unlock", "lock.door", {})]
 
 
+def _sec_app(env_pin="", tmp=None):
+    from service.pin_store import PinStore
+    dec = Decision(verdict="allow", stage="passed", device_id="light.a", operation="turn_off")
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(dec, registry=_reg_for_turn()), ha)
+    ps = PinStore(env_pin=env_pin, path=(str(tmp / "s.json") if tmp else None))
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude", model="m",
+                     tau=0.7, api_token="s3cret", pin_store=ps, request_timeout=5.0,
+                     controller_factory=lambda deadline=None: ctrl)
+    return TestClient(app), ps
+
+
+def test_get_security_pin_reflects_configured():
+    c, _ = _sec_app(env_pin="111111")
+    assert c.get("/v1/security/pin", headers=_auth()).json() == {"configured": True}
+    c2, _ = _sec_app(env_pin="")
+    assert c2.get("/v1/security/pin", headers=_auth()).json() == {"configured": False}
+
+
+def test_get_security_pin_requires_auth():
+    c, _ = _sec_app(env_pin="111111")
+    assert c.get("/v1/security/pin").status_code == 401
+
+
+def test_put_pin_no_durable_path_501():
+    c, _ = _sec_app(env_pin="111111")  # path=None
+    assert c.put("/v1/security/pin", headers=_auth(),
+                 json={"current_pin": "111111", "new_pin": "654321"}).status_code == 501
+
+
+def test_put_pin_unconfigured_409(tmp_path):
+    c, _ = _sec_app(env_pin="", tmp=tmp_path)
+    assert c.put("/v1/security/pin", headers=_auth(),
+                 json={"current_pin": "", "new_pin": "654321"}).status_code == 409
+
+
+def test_put_pin_wrong_current_403(tmp_path):
+    c, _ = _sec_app(env_pin="111111", tmp=tmp_path)
+    assert c.put("/v1/security/pin", headers=_auth(),
+                 json={"current_pin": "000000", "new_pin": "654321"}).status_code == 403
+
+
+def test_put_pin_short_new_400(tmp_path):
+    c, _ = _sec_app(env_pin="111111", tmp=tmp_path)
+    assert c.put("/v1/security/pin", headers=_auth(),
+                 json={"current_pin": "111111", "new_pin": "123"}).status_code == 400
+
+
+def test_put_pin_success_then_new_active(tmp_path):
+    c, ps = _sec_app(env_pin="111111", tmp=tmp_path)
+    r = c.put("/v1/security/pin", headers=_auth(),
+              json={"current_pin": "111111", "new_pin": "654321"})
+    assert r.status_code == 200 and r.json() == {"configured": True}
+    assert ps.verify("654321") and not ps.verify("111111")
+
+
+def test_put_pin_lockout_429(tmp_path):
+    c, _ = _sec_app(env_pin="111111", tmp=tmp_path)
+    for _ in range(5):
+        c.put("/v1/security/pin", headers=_auth(),
+              json={"current_pin": "000000", "new_pin": "654321"})
+    assert c.put("/v1/security/pin", headers=_auth(),
+                 json={"current_pin": "111111", "new_pin": "654321"}).status_code == 429
+
+
+def test_put_pin_requires_auth(tmp_path):
+    c, _ = _sec_app(env_pin="111111", tmp=tmp_path)
+    assert c.put("/v1/security/pin", json={"current_pin": "111111", "new_pin": "654321"}).status_code == 401
+
+
 def _pin_app(decision, pin="2468"):
     ha = StubHA()
     ctrl = Controller(FakeEngine(decision, registry=_reg_for_turn()), ha)
