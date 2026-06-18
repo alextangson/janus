@@ -78,16 +78,19 @@ class Engine:
         if parse.inferred:
             # 推断的意图永远到不了 allow:模型只有提议权,执行权在用户。
             return Decision(verdict="confirm", stage="inferred",
+                            dangerous=self.registry.is_dangerous(parse.device_id, parse.operation),
                             reason=parse.notes or "已根据当前状态推断该操作,请确认", **base)
 
         if parse.confidence < self.tau:
             return Decision(
                 verdict="confirm", stage="confidence",
+                dangerous=self.registry.is_dangerous(parse.device_id, parse.operation),
                 reason=f"理解把握不足(置信度 {parse.confidence} < τ {self.tau}),请核对", **base,
             )
 
         if self.registry.is_dangerous(parse.device_id, parse.operation):
-            return Decision(verdict="confirm", stage="safety", reason="该操作敏感/不可逆,执行前需确认", **base)
+            return Decision(verdict="confirm", stage="safety", dangerous=True,
+                            reason="该操作敏感/不可逆,执行前需确认", **base)
 
         return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)
 
@@ -102,6 +105,6 @@ class Engine:
         if fd is not None:
             return fd
         if self.registry.is_dangerous(device_id, operation):
-            return Decision(verdict="confirm", stage="safety",
+            return Decision(verdict="confirm", stage="safety", dangerous=True,
                             reason="该操作敏感/不可逆,执行前需确认", **base)
         return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)

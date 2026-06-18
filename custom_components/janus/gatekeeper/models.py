@@ -47,6 +47,7 @@ Stage = Literal["parse", "ambiguous", "feasibility", "inferred", "confidence", "
 class Decision(BaseModel):
     verdict: Verdict
     stage: Stage
+    dangerous: bool = False
     device_id: str | None = None
     operation: str | None = None
     params: dict[str, bool | int | str] = Field(default_factory=dict)
