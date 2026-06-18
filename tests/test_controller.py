@@ -3,9 +3,23 @@ from gatekeeper.models import Decision, Device, OperationSpec, ParamSpec
 from gatekeeper.registry import Registry
 
 
+def _default_registry():
+    return Registry({
+        "light.living_room": Device(name="客厅灯", type="light", area="客厅",
+                                    operations={"turn_on": OperationSpec(), "turn_off": OperationSpec()}),
+        "climate.ac": Device(name="空调", type="climate", area="卧室",
+                             operations={"set_temperature": OperationSpec(), "set_hvac_mode": OperationSpec()}),
+        "lock.door": Device(name="门锁", type="lock", area="门厅",
+                            operations={"unlock": OperationSpec(dangerous=True)}),
+        "lock.front_door": Device(name="大门锁", type="lock", area="门厅",
+                                  operations={"unlock": OperationSpec(dangerous=True)}),
+    })
+
+
 class FakeEngine:
-    def __init__(self, decision):
+    def __init__(self, decision, registry=None):
         self._d = decision
+        self.registry = registry or _default_registry()
 
     def decide(self, instruction):
         return self._d
@@ -92,7 +106,9 @@ def test_confirm_returns_prompt_and_needs_confirmation():
     out = Controller(FakeEngine(d), ha).handle("开锁")
     assert out.needs_confirmation is True
     assert out.executed is False
-    assert out.prompt and "unlock" in out.prompt and "lock.front_door" in out.prompt
+    # 中文化:气泡含人话动作,不漏裸 entity_id / 操作名
+    assert out.prompt and "解锁大门锁" in out.prompt
+    assert "lock.front_door" not in out.prompt and "unlock" not in out.prompt
     assert ha.calls == []
 
 
@@ -147,7 +163,7 @@ class FakeResolveEngine(FakeEngine):
     def __init__(self, decision, resolved=None, registry=None):
         super().__init__(decision)
         self._resolved = resolved
-        self.registry = registry
+        self.registry = registry or _default_registry()
         self.resolved_calls = []
 
     def decide_resolved(self, device_id: str, operation: str | None,
@@ -237,9 +253,11 @@ def test_inferred_prompt_shows_proposal_and_params():
                   reason="室外 14°C 偏凉,建议把空调调到 26°C")
     out = Controller(FakeEngine(d), StubHA()).handle("有点冷")
     assert out.needs_confirmation is True
-    assert out.prompt.startswith("💡 室外 14°C 偏凉")
-    assert "set_temperature → climate.ac" in out.prompt
-    assert "'temperature': 26" in out.prompt
+    # 气泡全程代码生成中文动作,不漏模型自由文本/裸 id/操作名/参数字典
+    assert out.prompt.startswith("💡")
+    assert "把空调调到 26°C" in out.prompt
+    assert "climate.ac" not in out.prompt and "set_temperature" not in out.prompt
+    assert "{" not in out.prompt and "}" not in out.prompt
 
 
 def test_confirm_refuses_non_confirm_verdict():

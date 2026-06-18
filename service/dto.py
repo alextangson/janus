@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from gatekeeper.phrasing import describe_action
+
 
 def _status(outcome) -> str:
     if outcome.error:
@@ -15,10 +17,9 @@ def _status(outcome) -> str:
     return "rejected"
 
 
-def _message(outcome) -> str:
+def _message(outcome, registry) -> str:
     if outcome.executed:
-        d = outcome.decision
-        return f"已执行:{d.device_id}.{d.operation}"
+        return f"已执行:{describe_action(outcome.decision, registry)}"
     if outcome.error:
         return f"失败:{outcome.error}"
     if outcome.prompt:
@@ -47,7 +48,7 @@ def outcome_to_dto(outcome, *, conversation_id: str, pending_id: str | None,
         "conversation_id": conversation_id,
         "pending_id": pending_id,
         "expires_at": expires_at,
-        "message": _message(outcome),
+        "message": _message(outcome, registry),
         "choices": _choices(outcome, registry),
         "device": d.device_id,
         "operation": d.operation,

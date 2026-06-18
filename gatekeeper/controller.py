@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import Decision
-from .queries import _HVAC_ZH
-
-_PARAM_ZH = {"temperature": "温度", "position": "位置", "percentage": "百分比",
-             "hvac_mode": "模式", "mode": "模式", "brightness_pct": "亮度"}
+from .phrasing import _PARAM_ZH, describe_action
+from .queries import _ENUM_ZH
 
 
 @dataclass
@@ -97,8 +95,8 @@ class Controller:
                 lines.append(f"{i}) {area}{name}")
             return "你是说哪一个?" + " ".join(lines)
         if decision.stage == "inferred":
-            return (f"💡 {decision.reason.rstrip('。')}。确认执行"
-                    f"「{decision.operation} → {decision.device_id}」({dict(decision.params)})吗?")
+            # 全程代码生成中文动作短语,不把模型自由文本/裸 id/参数字典糊给用户
+            return f"💡 要帮你{describe_action(decision, self.engine.registry)}吗?"
         if decision.stage == "param":
             device = self.engine.registry.get(decision.device_id)
             if device is None:
@@ -106,9 +104,10 @@ class Controller:
             spec = device.operations[decision.operation].params[decision.missing_param]
             label = _PARAM_ZH.get(decision.missing_param, decision.missing_param)
             if spec.type == "enum":
-                opts = "/".join(_HVAC_ZH.get(v, v) for v in (spec.enum or []))
+                opts = "/".join(_ENUM_ZH.get(v, v) for v in (spec.enum or []))
                 return f"要把「{device.name}」的{label}设成哪种?({opts})"
             if spec.min is not None and spec.max is not None:
                 return f"要把「{device.name}」的{label}设成多少?({spec.min}–{spec.max}{spec.unit or ''})"
             return f"要把「{device.name}」的{label}设成多少?"
-        return f"确认执行「{decision.operation} → {decision.device_id}」?{decision.reason}"
+        # safety/confidence 等:reason 为代码设定文案(非模型自由文本),可安全展示
+        return f"确认{describe_action(decision, self.engine.registry)}?{decision.reason}"

@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 from .models import ParamSpec
-from .queries import _HVAC_ZH
+from .queries import _ENUM_ZH
 
 _ZH_DIGIT = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
@@ -60,7 +60,7 @@ def coerce_param(reply: str, spec: ParamSpec) -> int | str | None:
         return extract_int(reply)
     if spec.type == "enum":
         for v in (spec.enum or []):
-            if v in reply or _HVAC_ZH.get(v, "\0") in reply:
+            if v in reply or _ENUM_ZH.get(v, "\0") in reply:
                 return v
     return None
 

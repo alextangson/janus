@@ -1,7 +1,7 @@
 [
   {"domain": "light", "services": {"turn_on": {}, "turn_off": {}}},
   {"domain": "switch", "services": {"turn_on": {}, "turn_off": {}}},
-  {"domain": "climate", "services": {"set_temperature": {}, "set_hvac_mode": {}, "turn_on": {}, "turn_off": {}}},
+  {"domain": "climate", "services": {"set_temperature": {}, "set_hvac_mode": {}, "set_fan_mode": {}, "set_swing_mode": {}, "set_swing_horizontal_mode": {}, "set_preset_mode": {}, "turn_on": {}, "turn_off": {}}},
   {"domain": "cover", "services": {"open_cover": {}, "close_cover": {}, "set_cover_position": {}}},
   {"domain": "lock", "services": {"lock": {}, "unlock": {}}},
   {"domain": "alarm_control_panel", "services": {"alarm_arm_home": {}, "alarm_arm_away": {}, "alarm_disarm": {}}},

@@ -14,7 +14,8 @@ SYSTEM_PROMPT = """你是一个智能家居指令解析器。你唯一的职责:
 - 不要判断操作是否危险、参数是否越界——照实抽取用户意图即可,合法性由系统另行检查。
 - confidence 表示你对"这就是用户意图"的把握(0~1):指令清晰直接→高;含糊、可能指代多个设备、信息不全→低。
 - 若指令含糊地匹配多个设备(同名/同区域/同类型),不要硬猜:令 recognized=true,把全部可能的 device_id 列入 candidates,device_id 留空;operation 与 params 照常填。明确无歧义时 candidates 必须为空。
-- 若指令是模糊的舒适度/感受表达(冷、热、闷、暗等)而非明确命令:照常填 device_id/operation/params(结合"当前状态"推断合理参数),令 inferred=true,并在 notes 用一句中文说明推断理由(如"室外 14°C 偏凉,建议把空调调到 26°C")。明确指令时 inferred 必须为 false。
+- 若指令是模糊的舒适度/感受表达(冷、热、闷、暗等)而非明确命令:照常填 device_id/operation/params(结合"当前状态"推断合理参数),令 inferred=true,并在 notes 用一句简短中文口语说明体感与建议(≤25字,只说人话,严禁出现 operation 名/entity_id/参数键值)。明确指令时 inferred 必须为 false。
+- 舒适度推断的取舍纪律(重要):①【优先最小、同向动作】若设备已在与诉求同向的模式(用户说"冷"而空调正在 cool 制冷;或说"热"而空调正在 heat 制热),首选调整目标温度 set_temperature 或 turn_off,【绝不】反向切换 hvac_mode。②【尊重季节与现状】结合"当前季节",夏天用户喊"冷"通常是空调太凉,应调高制冷设定温度或关空调,而不是切到制热;只有当前模式与诉求明显相反时才考虑换模式。③"冷"→升高制冷设定温度/停冷,"热"→降低设定温度,而非在 cool↔heat 间翻转。反例:空调正以 26° 制冷、用户说"有点冷"→应提议 set_temperature 升到约 28°(或 turn_off),【不是】 set_hvac_mode=制热。
 - 若用户明确要执行某操作,但没说出该操作必填参数的具体值(如"把空调调一下温度"却没说几度):不要编造该值,把该参数留空——系统会反问用户。只有模糊舒适度表达(inferred)才结合当前状态推断参数值。
 - 若用户是在询问设备状态(如"空调开着吗""几度""灯关了没""现在什么模式")而非下达控制指令:令 query=true,device_id 填要查询的设备,operation 与 params 留空。控制指令时 query 必须为 false。
 - 一次只提议一个 operation;params 里只能出现该 operation 在清单中列出的参数名,绝不附加别的键(想同时做两件事时,选最关键的一件,另一件写进 notes)。
@@ -30,11 +31,20 @@ def anthropic_tool() -> dict:
     return {"name": TOOL_NAME, "description": TOOL_DESC, "input_schema": parse_schema()}
 
 
-def build_user_prompt(registry: Registry, instruction: str, context: str | None = None) -> str:
+def current_season(month: int) -> str:
+    """月份 → 季节(北半球)。用于让模型对'冷/热'是否合常理有判断。"""
+    return {12: "冬季", 1: "冬季", 2: "冬季", 3: "春季", 4: "春季", 5: "春季",
+            6: "夏季", 7: "夏季", 8: "夏季", 9: "秋季", 10: "秋季", 11: "秋季"}[month]
+
+
+def build_user_prompt(registry: Registry, instruction: str, context: str | None = None,
+                      season: str | None = None) -> str:
     parts = [
         "可用设备清单(只能从中选择 device_id 与 operation):\n"
         f"{registry.as_prompt_catalog()}",
     ]
+    if season:
+        parts.append(f"当前季节:{season}(据此判断用户'冷/热'诉求是否合常理)")
     if context:
         parts.append(f"当前状态(供推断参考):\n{context}")
     parts.append(f"用户指令:{instruction}\n\n请调用 emit_parse 输出解析结果。")

@@ -7,8 +7,21 @@ from __future__ import annotations
 
 from .registry import Registry
 
+_HA_DEMO_LAT, _HA_DEMO_LON = 47.60621, -122.33207  # HA 默认西雅图 demo 坐标=未配置位置的标志
 
-def build_context(states: list, registry: Registry) -> str:
+
+def _location_suspect(home_coords) -> bool:
+    if not home_coords:
+        return False
+    lat, lon = home_coords
+    if lat is None or lon is None:
+        return False
+    if abs(lat) < 0.5 and abs(lon) < 0.5:               # null-island (0,0)
+        return True
+    return abs(lat - _HA_DEMO_LAT) < 0.05 and abs(lon - _HA_DEMO_LON) < 0.05
+
+
+def build_context(states: list, registry: Registry, home_coords=None) -> str:
     by_id: dict[str, dict] = {}
     for st in states:
         if isinstance(st, dict) and st.get("entity_id"):
@@ -37,6 +50,9 @@ def build_context(states: list, registry: Registry) -> str:
                 line += f",{attrs['temperature']}{attrs.get('temperature_unit', '')}"
             if attrs.get("humidity") is not None:
                 line += f",湿度 {attrs['humidity']}%"
+            # 室外≠室内体感;位置疑未配置时进一步降权,别让错地点的室外值污染舒适度推断
+            note = "室外参考,位置疑未配置,仅供参考" if _location_suspect(home_coords) else "室外参考,非室内体感"
+            line += f"（{note}）"
             lines.append(line)
         elif eid.startswith("sensor.") and attrs.get("device_class") in ("temperature", "humidity"):
             name = attrs.get("friendly_name", eid)
