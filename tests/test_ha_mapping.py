@@ -218,3 +218,39 @@ def test_build_snapshot_skips_malformed():
     assert list(snap.by_entity) == ["light.ok"]
     assert list(snap.by_device) == ["d1"]
     assert snap.by_area == {"a1": "A"}
+
+
+def test_climate_fan_swing_preset_params():
+    c = map_ha(_states(), _services())["climate.living_room"]
+    assert c.operations["set_fan_mode"].params["fan_mode"].enum == ["auto", "low", "medium", "high"]
+    assert c.operations["set_swing_mode"].params["swing_mode"].enum == ["off", "vertical"]
+    assert c.operations["set_swing_horizontal_mode"].params["swing_horizontal_mode"].enum == ["off", "horizontal"]
+    assert c.operations["set_preset_mode"].params["preset_mode"].enum == ["none", "eco", "sleep", "boost"]
+
+
+def test_climate_secondary_op_gated_by_feature_bit():
+    states = _states()
+    for e in states:
+        if e["entity_id"] == "climate.living_room":
+            e["attributes"]["supported_features"] = 569 & ~8  # 清掉 FAN_MODE 位
+    c = map_ha(states, _services())["climate.living_room"]
+    assert "set_fan_mode" not in c.operations
+    assert "set_swing_mode" in c.operations  # 其余不受影响
+
+
+def test_climate_secondary_op_gated_by_empty_attr():
+    states = _states()
+    for e in states:
+        if e["entity_id"] == "climate.living_room":
+            e["attributes"]["preset_modes"] = []
+    c = map_ha(states, _services())["climate.living_room"]
+    assert "set_preset_mode" not in c.operations
+
+
+def test_climate_secondary_op_gated_by_service():
+    services = _services()
+    for e in services:
+        if e["domain"] == "climate":
+            e["services"].pop("set_swing_mode", None)
+    c = map_ha(_states(), services)["climate.living_room"]
+    assert "set_swing_mode" not in c.operations

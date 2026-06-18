@@ -47,6 +47,10 @@ def _int(value) -> int | None:
 # 否则 HA 会拒绝调用(500)。非能力型操作(开关/锁/arm 等)不在此表,一律视为支持。
 _FEATURE_BIT = {
     "set_temperature": 1,      # ClimateEntityFeature.TARGET_TEMPERATURE
+    "set_fan_mode": 8,                 # ClimateEntityFeature.FAN_MODE
+    "set_preset_mode": 16,             # ClimateEntityFeature.PRESET_MODE
+    "set_swing_mode": 32,              # ClimateEntityFeature.SWING_MODE
+    "set_swing_horizontal_mode": 512,  # ClimateEntityFeature.SWING_HORIZONTAL_MODE
     "set_cover_position": 4,   # CoverEntityFeature.SET_POSITION
     "open": 1,                 # LockEntityFeature.OPEN(开闩)
     "set_percentage": 1,       # FanEntityFeature.SET_SPEED
@@ -79,6 +83,15 @@ def _candidate_operations(domain: str, attrs: dict,
         modes = attrs.get("hvac_modes")
         if modes:
             ops["set_hvac_mode"] = {"hvac_mode": ParamSpec(type="enum", enum=list(modes), required=True)}
+        for op_name, attr_key, param in (
+            ("set_fan_mode", "fan_modes", "fan_mode"),
+            ("set_swing_mode", "swing_modes", "swing_mode"),
+            ("set_swing_horizontal_mode", "swing_horizontal_modes", "swing_horizontal_mode"),
+            ("set_preset_mode", "preset_modes", "preset_mode"),
+        ):
+            values = attrs.get(attr_key)
+            if values:
+                ops[op_name] = {param: ParamSpec(type="enum", enum=list(values), required=True)}
         return ops
     if domain == "cover":
         return {"open_cover": {}, "close_cover": {},
