@@ -149,6 +149,135 @@ def test_reply_confirm_executes_after_pending():
     assert ha.calls == [("lock", "unlock", "lock.door", {})]
 
 
+def _pin_app(decision, pin="2468"):
+    ha = StubHA()
+    ctrl = Controller(FakeEngine(decision, registry=_reg_for_turn()), ha)
+    app = create_app(ha_client=FakeHA(), llm_client=object(), backend="claude",
+                     model="m", tau=0.7, api_token="s3cret", dangerous_pin=pin,
+                     request_timeout=5.0, controller_factory=lambda deadline=None: ctrl)
+    return TestClient(app), ha
+
+
+def _danger_pending(c, utterance="开锁"):
+    turn = c.post("/v1/turn", headers=_auth(), json={"utterance": utterance}).json()
+    return turn["conversation_id"], turn["pending_id"], turn
+
+
+def test_dangerous_control_dto_signals_requires_pin_when_pin_configured():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, _ = _pin_app(dec)
+    _, _, turn = _danger_pending(c)
+    assert turn["status"] == "needs_confirmation"
+    assert turn["requires_pin"] is True
+
+
+def test_requires_pin_false_when_no_pin_or_not_dangerous():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, _ = _pin_app(dec, pin="")                          # 未配 PIN
+    assert _danger_pending(c)[2]["requires_pin"] is False
+    nd = Decision(verdict="confirm", stage="confidence", dangerous=False,
+                  device_id="light.a", operation="turn_off")
+    c2, _ = _pin_app(nd)                                  # 配 PIN 但非危险
+    assert c2.post("/v1/turn", headers=_auth(), json={"utterance": "关灯"}).json()["requires_pin"] is False
+
+
+def test_dangerous_confirm_without_pin_rejected_not_executed():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c)
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.status_code == 403
+    assert ha.calls == []
+
+
+def test_dangerous_confirm_wrong_pin_rejected():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c)
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True, "pin": "0000"})
+    assert r.status_code == 403
+    assert ha.calls == []
+
+
+def test_dangerous_confirm_correct_pin_executes():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c)
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True, "pin": "2468"})
+    assert r.status_code == 200 and r.json()["status"] == "executed"
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_dangerous_confirm_truthy_nonbool_value_still_needs_pin():
+    # codex bypass: value=1 / "yes" 在 controller bool(value) approve,但不能绕过 PIN 门
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    for val in (1, "yes"):
+        c, ha = _pin_app(dec)
+        cid, pid, _ = _danger_pending(c)
+        r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+                   json={"conversation_id": cid, "kind": "confirm", "value": val})
+        assert r.status_code == 403, f"value={val!r} bypassed PIN"
+        assert ha.calls == []
+
+
+def test_dangerous_low_confidence_confirm_still_needs_pin():
+    # codex bypass: 危险但 stage=confidence(非 safety)的 confirm 仍须 PIN(门按 dangerous 非 stage)
+    dec = Decision(verdict="confirm", stage="confidence", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="把握不足")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c, utterance="好像要开门?")
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.status_code == 403
+    assert ha.calls == []
+
+
+def test_non_dangerous_confirm_executes_without_pin():
+    # 非危险的低置信确认不受 PIN 门影响(无摩擦)
+    dec = Decision(verdict="confirm", stage="confidence", dangerous=False,
+                   device_id="light.a", operation="turn_off", reason="把握不足")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c, utterance="把灯弄一下")
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.status_code == 200 and r.json()["status"] == "executed"
+    assert ha.calls == [("light", "turn_off", "light.a", {})]
+
+
+def test_dangerous_confirm_without_pin_status_quo_when_pin_unset():
+    # 未配 PIN:危险 confirm 无 pin 照常执行(零回归)
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, ha = _pin_app(dec, pin="")
+    cid, pid, _ = _danger_pending(c)
+    r = c.post(f"/v1/pending/{pid}/reply", headers=_auth(),
+               json={"conversation_id": cid, "kind": "confirm", "value": True})
+    assert r.status_code == 200 and r.json()["status"] == "executed"
+    assert ha.calls == [("lock", "unlock", "lock.door", {})]
+
+
+def test_dangerous_wrong_pin_burns_pending_then_409():
+    dec = Decision(verdict="confirm", stage="safety", dangerous=True,
+                   device_id="lock.door", operation="unlock", reason="敏感")
+    c, ha = _pin_app(dec)
+    cid, pid, _ = _danger_pending(c)
+    body = {"conversation_id": cid, "kind": "confirm", "value": True}
+    assert c.post(f"/v1/pending/{pid}/reply", headers=_auth(), json=body).status_code == 403
+    # 错 PIN 烧掉 pending:同 id 再试 → 409(防爆破,须重发 control)
+    again = c.post(f"/v1/pending/{pid}/reply", headers=_auth(), json={**body, "pin": "2468"})
+    assert again.status_code == 409
+    assert ha.calls == []
+
+
 def test_reply_one_time_pending_id():
     dec = Decision(verdict="confirm", stage="safety", device_id="lock.door",
                    operation="unlock", reason="敏感")
