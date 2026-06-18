@@ -297,6 +297,21 @@ def test_acquire_owner_lock_mutual_exclusion(tmp_path):
     s2._release_lock()
 
 
+def test_acquire_owner_lock_creates_missing_parent_dir(tmp_path):
+    # 全新部署:父目录尚不存在。acquire 应自建目录并成功拿锁,而非被 OSError 静默吞掉。
+    lock_path = tmp_path / "nonexistent_subdir" / "scheduler.lock"
+    assert not lock_path.parent.exists()
+    store = _store()
+    fac, _ = factory_returning(FakeOutcome(executed=True))
+    sched = Scheduler(store, fac, tz_name=SH, lock_path=lock_path)
+
+    assert sched.acquire_owner_lock() is True
+    assert lock_path.parent.is_dir()  # 父目录被创建
+    assert lock_path.exists()         # 锁文件被创建
+
+    sched._release_lock()
+
+
 # ---- 10. audit events ----
 
 

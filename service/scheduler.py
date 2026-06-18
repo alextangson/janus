@@ -49,10 +49,17 @@ class Scheduler:
         否则 flock LOCK_EX|LOCK_NB:成功留住 fd 返 True;被占 → 返 False。"""
         if self._lock_path is None:
             return True
+        # 全新部署时 data/ 可能尚不存在:O_CREAT 只建文件不建父目录,
+        # 先建父目录(与 ScheduleStore._atomic_write 同纪律),否则 os.open 抛 FileNotFoundError。
+        parent = os.path.dirname(self._lock_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, OSError):
+        except BlockingIOError:
+            # 仅锁竞争(另一 worker 持锁)才返 False;其它 OSError(权限等)向上抛,
+            # 让真实配置错误在启动时炸出来,而非伪装成"锁被占"被静默吞掉。
             os.close(fd)
             return False
         self._lock_fd = fd
@@ -108,7 +115,7 @@ class Scheduler:
                 at=None,
                 minute_of_day=e.minute_of_day,
                 days=e.days,
-                tz_name=e.tz,
+                tz_name=e.tz,  # 用条目自身的 tz(创建时锁定),非 self._tz_name —— 防跨时区漂移
                 after=now,
             )
             e.next_fire_at = nf

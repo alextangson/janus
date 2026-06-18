@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -23,6 +24,8 @@ from .pin_store import PinStore
 from .schedule_store import ScheduleEntry, ScheduleLimitExceeded, ScheduleStore
 from .schedule_time import compute_next_fire
 from .sessions import ConversationStore
+
+logger = logging.getLogger(__name__)
 
 
 class TurnReq(BaseModel):
@@ -95,7 +98,9 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
     async def _lifespan(_app: FastAPI):
         # scheduler is None(默认/现有测试)→ 全程 no-op,绝不起后台循环。
         if scheduler is not None:
-            scheduler.start()  # 自门控 owner 锁:只有持锁者真正跑循环
+            is_owner = scheduler.start()  # 自门控 owner 锁:只有持锁者真正跑循环
+            if not is_owner:
+                logger.info("scheduler: not the owner (standby) — executor loop not started")
         yield
         if scheduler is not None:
             await scheduler.stop()
