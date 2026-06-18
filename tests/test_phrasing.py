@@ -51,3 +51,16 @@ def test_no_leak_for_unknown_op():
 def test_unknown_device_never_leaks_entity_id():
     s = describe_action(_d("turn_on", device_id="switch.ghost_xyz"), _reg())
     assert "switch.ghost_xyz" not in s
+
+
+def test_set_fan_mode_natural():
+    assert describe_action(_d("set_fan_mode", {"fan_mode": "high"}), _reg()) == "把空调风速调到高"
+
+
+def test_set_preset_mode_natural():
+    assert describe_action(_d("set_preset_mode", {"preset_mode": "sleep"}), _reg()) == "把空调切到睡眠模式"
+
+
+def test_set_swing_mode_fallback_is_localized():
+    # swing 走兜底,但参数名与值都中文化(注意是全角括号)
+    assert describe_action(_d("set_swing_mode", {"swing_mode": "vertical"}), _reg()) == "调节空调（上下扫风 上下）"
