@@ -172,9 +172,21 @@ def test_weekday_and_weekend_do_not_merge():
 
 
 def test_eligible_days_uses_entity_active_window():
-    evs = _wake_events(weeks=3)
+    evs = _wake_events(weeks=3)  # light.bed 活跃自 1/1
     habits = mine(evs, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
-    assert habits[0].eligible_days <= 18  # 该实体活跃窗内工作日数,不是固定大窗
+    # [1/1..1/22] 工作日 = 16(含今天,now 09:00 已过 typical ~07:0x)
+    assert habits[0].eligible_days == 16
+
+
+def test_filtered_early_event_still_widens_active_window():
+    # active_start 须取该实体**全部**事件(过滤前)。一条更早的 automation 事件(不进分组)
+    # 仍应把活跃窗拉到去年 → 分母暴增 → consistency<0.8 → 习惯出局。守护"active_start 在过滤前算"。
+    now = datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp()
+    evs = _wake_events(weeks=3)
+    assert len(mine(evs, now, tz=TZ)) == 1  # 基线:挖出
+    early = ObservedEvent(ts=datetime(2023, 12, 1, 7, 5, tzinfo=TZ).timestamp(),
+                          entity_id="light.bed", new_state="on", source="automation")
+    assert mine([early] + evs, now, tz=TZ) == []  # 分母被拉大 → 不再达一致性门
 
 
 def test_empty_input():
