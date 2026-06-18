@@ -164,8 +164,11 @@ def test_weekday_and_weekend_do_not_merge():
             day = start + timedelta(days=w * 7 + dow)
             we.append(ObservedEvent(ts=datetime(day.year, day.month, day.day, 7, 5, tzinfo=TZ).timestamp(),
                                     entity_id="light.bed", new_state="on", source="user"))
-    habits = mine(wk + we, datetime(2024, 1, 25, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
-    assert {h.daytype for h in habits} == {"weekday"}  # 周末仅 6 天 <6,不挖出
+    # now=周一 1/22(3 周跨度刚过):工作日(15 天)和周末(6 天)各自达门 → 两条独立习惯,
+    # 不混成一条。这正证明二者不合并(daytype 分组生效)。
+    habits = mine(wk + we, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
+    assert len(habits) == 2
+    assert {h.daytype for h in habits} == {"weekday", "weekend"}
 
 
 def test_eligible_days_uses_entity_active_window():

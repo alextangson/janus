@@ -129,14 +129,12 @@ def mine(events: list[ObservedEvent], now: float,
         dates = {d for _, d in members}
         support = len(dates)
         weeks = len({_iso_week(d) for d in dates})
-        # 活跃窗结束用组内最晚事件日期(不延伸到 now),避免近期沉默天稀释 consistency
-        last_date = max(dates)
-        eligible_end = last_date if last_date < now_date else now_date
-        eligible = _eligible_days(active_start[eid], eligible_end, daytype, now_minute, typical)
+        # 分母延伸到 now(spec):近期不再触发的习惯,consistency 应随之衰减、自然出局
+        eligible = _eligible_days(active_start[eid], now_date, daytype, now_minute, typical)
         if eligible == 0:
             continue
         consistency = support / eligible
-        if (support > config.min_support and weeks >= config.min_weeks
+        if (support >= config.min_support and weeks >= config.min_weeks
                 and consistency >= config.min_consistency):
             habits.append(Habit(
                 entity_id=eid, domain=eid.split(".")[0], new_state=state, daytype=daytype,
