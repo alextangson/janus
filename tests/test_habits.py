@@ -45,3 +45,36 @@ def test_config_and_dataclass_defaults():
               typical_minute=425, support=15, eligible_days=15, weeks=3,
               consistency=1.0, spread_min=8)
     assert h.typical_minute == 425
+
+
+from datetime import date as _date
+from gatekeeper.habits import _best_window
+
+
+def test_best_window_picks_max_distinct_day_support():
+    # 同一窗内,跨小时边界(06:55±)的多天事件应被一窗捕获
+    pts = [
+        (415, _date(2024, 1, 1)),  # 06:55
+        (420, _date(2024, 1, 2)),  # 07:00
+        (418, _date(2024, 1, 3)),  # 06:58
+        (700, _date(2024, 1, 4)),  # 离群 11:40,不在窗内
+    ]
+    members, spread, typical = _best_window(pts, 20)
+    days = {d for _, d in members}
+    assert days == {_date(2024, 1, 1), _date(2024, 1, 2), _date(2024, 1, 3)}
+    assert spread == 420 - 415
+    assert typical == 418  # 中位(415,418,420)
+
+
+def test_best_window_support_counts_distinct_days_not_events():
+    # 同一天多次开关不灌水
+    pts = [
+        (420, _date(2024, 1, 1)), (421, _date(2024, 1, 1)), (419, _date(2024, 1, 1)),
+        (420, _date(2024, 1, 2)),
+    ]
+    members, _, _ = _best_window(pts, 20)
+    assert len({d for _, d in members}) == 2
+
+
+def test_best_window_empty():
+    assert _best_window([], 20) == ([], 0, 0)

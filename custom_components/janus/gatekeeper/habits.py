@@ -56,3 +56,28 @@ def _minute_of_day(dt: datetime) -> int:
 def _iso_week(dt: date | datetime) -> tuple[int, int]:
     iso = dt.isocalendar()
     return (iso.year, iso.week)
+
+
+def _best_window(points: list[tuple[int, date]], max_spread: int
+                 ) -> tuple[list[tuple[int, date]], int, int]:
+    """points = [(minute_of_day, local_date)]。在所有宽 max_spread 的窗 [m, m+max_spread]
+    里,取**不同天数最多**的窗(平手:实际 spread 小者优先,再 typical 早者)。
+    返回 (窗内成员, spread_min, typical_minute=窗内 minute 中位)。空输入 → ([], 0, 0)。
+    """
+    if not points:
+        return ([], 0, 0)
+    pts = sorted(points, key=lambda p: p[0])
+    best_key: tuple[int, int, int] | None = None
+    best: tuple[list[tuple[int, date]], int, int] | None = None
+    for start_min, _ in pts:
+        members = [p for p in pts if start_min <= p[0] <= start_min + max_spread]
+        minutes = [m for m, _ in members]
+        support = len({d for _, d in members})
+        spread = max(minutes) - min(minutes)
+        typical = sorted(minutes)[len(minutes) // 2]
+        key = (support, -spread, -typical)  # 最大化:支持度↑、spread↓、typical↑早
+        if best_key is None or key > best_key:
+            best_key = key
+            best = (members, spread, typical)
+    assert best is not None
+    return best
