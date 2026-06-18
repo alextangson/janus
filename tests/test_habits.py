@@ -78,3 +78,14 @@ def test_best_window_support_counts_distinct_days_not_events():
 
 def test_best_window_empty():
     assert _best_window([], 20) == ([], 0, 0)
+
+
+def test_best_window_tiebreak_prefers_smaller_spread():
+    # 两簇支持度都=2(相距 >20min 无法同窗),平手取 spread 小的那簇
+    pts = [
+        (400, _date(2024, 1, 1)), (401, _date(2024, 1, 2)),  # spread 1
+        (500, _date(2024, 1, 1)), (519, _date(2024, 1, 2)),  # spread 19
+    ]
+    members, spread, _ = _best_window(pts, 20)
+    assert spread == 1
+    assert {m for m, _ in members} == {400, 401}
