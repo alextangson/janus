@@ -31,6 +31,7 @@ class ReplyReq(BaseModel):
     conversation_id: str
     kind: str                # confirm | choice | param
     value: bool | int | str
+    pin: str | None = None   # 危险操作第二因子;仅 kind=confirm 且 decision.dangerous 时服务端强制
 
 
 class ControlReq(BaseModel):
@@ -55,7 +56,7 @@ def _empty_registry() -> Registry:
 
 
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
-               api_token: str, request_timeout: float = 30.0,
+               api_token: str, dangerous_pin: str = "", request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
                controller_factory=None, audit=None,
                cors_origins: list[str] | None = None) -> FastAPI:

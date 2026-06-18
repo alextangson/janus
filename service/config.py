@@ -7,6 +7,8 @@ from gatekeeper.config import load_env
 load_env()  # 复用仓库根 .env(HA url/token、ANTHROPIC_API_KEY、BACKEND 等仍由 gatekeeper.config 提供)
 
 API_TOKEN = os.environ.get("JANUS_API_TOKEN", "")
+# 危险操作第二因子 PIN(可选)。设置后,危险操作的 confirm 必须带正确 PIN;空=关闭(token 单因子)。
+DANGEROUS_PIN = os.environ.get("JANUS_DANGEROUS_PIN", "")
 HOST = os.environ.get("JANUS_HOST", "127.0.0.1")
 PORT = int(os.environ.get("JANUS_PORT", "8088"))
 
