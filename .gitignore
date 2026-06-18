@@ -6,3 +6,4 @@ __pycache__/
 *.egg-info/
 docs/superpowers/
 data/janus_audit.db*
+data/janus_security.json
