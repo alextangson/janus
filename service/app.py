@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +21,11 @@ from .device_dto import device_state, device_to_dto
 from .dto import outcome_to_dto
 from .engine_factory import build_fresh_controller
 from .pin_store import PinStore
+from .schedule_store import ScheduleEntry, ScheduleLimitExceeded, ScheduleStore
+from .schedule_time import compute_next_fire
 from .sessions import ConversationStore
+
+logger = logging.getLogger(__name__)
 
 
 class TurnReq(BaseModel):
@@ -52,6 +58,20 @@ class SecurityPinReq(BaseModel):
     new_pin: str
 
 
+class ScheduleCreateReq(BaseModel):
+    device_id: str
+    operation: str
+    params: dict[str, bool | int | str] = {}
+    kind: str                       # "once" | "recurring"
+    at: float | None = None
+    minute_of_day: int | None = None
+    days: list[int] | None = None
+
+
+class SchedulePatchReq(BaseModel):
+    enabled: bool
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -66,18 +86,32 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
                controller_factory=None, audit=None,
-               cors_origins: list[str] | None = None) -> FastAPI:
+               cors_origins: list[str] | None = None,
+               schedule_store: ScheduleStore | None = None,
+               default_tz: str = "Asia/Shanghai", scheduler=None) -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
     # 向后兼容:仅给 dangerous_pin(块 A)→ 构 env-only 内存 store(无持久路径,管理端点禁用)
     pin_store = pin_store or PinStore(env_pin=dangerous_pin, path=None)
-    app = FastAPI(title="Janus", version="1")
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        # scheduler is None(默认/现有测试)→ 全程 no-op,绝不起后台循环。
+        if scheduler is not None:
+            is_owner = scheduler.start()  # 自门控 owner 锁:只有持锁者真正跑循环
+            if not is_owner:
+                logger.info("scheduler: not the owner (standby) — executor loop not started")
+        yield
+        if scheduler is not None:
+            await scheduler.stop()
+
+    app = FastAPI(title="Janus", version="1", lifespan=_lifespan)
     # Web app(浏览器)跨域调用需要 CORS。Janus 用 bearer(非 cookie),故 allow_origins=*
     # 对这种 API 安全(攻击页拿不到 token);可用 JANUS_CORS_ORIGINS 收紧到具体源。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins or ["*"],
-        allow_methods=["GET", "POST", "PUT"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
         allow_headers=["Authorization", "Content-Type"],
     )
     store = store or ConversationStore()
@@ -338,5 +372,74 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
             raise HTTPException(status_code=400, detail="new PIN must be at least 6 characters")
         pin_store.set(req.new_pin)
         return {"configured": True}
+
+    def _require_schedule_store() -> ScheduleStore:
+        if schedule_store is None:
+            raise HTTPException(status_code=503, detail="schedules not available")
+        return schedule_store
+
+    @app.post("/v1/schedules", status_code=201, dependencies=[Depends(require_auth)])
+    async def create_schedule(req: ScheduleCreateReq) -> dict:
+        # 形状校验先于 store/gate:无效请求不应触达后端。
+        if req.kind not in ("once", "recurring"):
+            raise HTTPException(status_code=422, detail="kind must be once or recurring")
+        if req.kind == "once":
+            if req.at is None:
+                raise HTTPException(status_code=422, detail="once 需要 at")
+        else:  # recurring
+            if req.minute_of_day is None or not (0 <= req.minute_of_day <= 1439):
+                raise HTTPException(status_code=422, detail="minute_of_day 须在 0..1439")
+            if not req.days or not all(isinstance(d, int) and 0 <= d <= 6 for d in req.days):
+                raise HTTPException(status_code=422, detail="days 须为非空的 0..6 列表")
+        sched = _require_schedule_store()
+        # 建时闸:仅校验不执行(decide_resolved),非 allow → 拒建(危险→confirm、不可行→reject)。
+        ctrl = await asyncio.to_thread(_fresh_controller)
+        decision = ctrl.engine.decide_resolved(req.device_id, req.operation, dict(req.params))
+        if decision.verdict != "allow":
+            raise HTTPException(status_code=422, detail=decision.reason)
+        next_fire_at = compute_next_fire(kind=req.kind, at=req.at,
+                                         minute_of_day=req.minute_of_day, days=req.days,
+                                         tz_name=default_tz, after=time.time())
+        if next_fire_at is None:
+            raise HTTPException(status_code=422, detail="无可触发时刻")
+        entry = ScheduleEntry(
+            id=uuid.uuid4().hex, device_id=req.device_id, operation=req.operation,
+            params=dict(req.params), kind=req.kind, at=req.at,
+            minute_of_day=req.minute_of_day, days=req.days, tz=default_tz,
+            enabled=True, next_fire_at=next_fire_at, created_at=time.time())
+        try:
+            sched.add(entry)
+        except ScheduleLimitExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc))
+        _audit_lifecycle("schedule_created", uuid.uuid4().hex, f"schedule:{entry.id}",
+                         entry.device_id, entry.operation)
+        return {"id": entry.id, "next_fire_at": entry.next_fire_at}
+
+    @app.get("/v1/schedules", dependencies=[Depends(require_auth)])
+    def list_schedules() -> dict:
+        sched = _require_schedule_store()
+        return {"schedules": [e.to_dict() for e in sched.list()]}
+
+    @app.delete("/v1/schedules/{sid}", dependencies=[Depends(require_auth)])
+    def delete_schedule(sid: str) -> dict:
+        sched = _require_schedule_store()
+        if not sched.remove(sid):
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return {"ok": True}
+
+    @app.patch("/v1/schedules/{sid}", dependencies=[Depends(require_auth)])
+    def patch_schedule(sid: str, req: SchedulePatchReq) -> dict:
+        sched = _require_schedule_store()
+        entry = sched.get(sid)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        entry.enabled = req.enabled
+        # 重新启用一个已无下次触发时刻的 recurring → 重算,避免被禁用期错过后永不触发。
+        if req.enabled and entry.kind == "recurring" and entry.next_fire_at is None:
+            entry.next_fire_at = compute_next_fire(
+                kind=entry.kind, at=entry.at, minute_of_day=entry.minute_of_day,
+                days=entry.days, tz_name=entry.tz, after=time.time())
+        sched.update(entry)
+        return entry.to_dict()
 
     return app
