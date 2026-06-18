@@ -31,6 +31,7 @@ class ReplyReq(BaseModel):
     conversation_id: str
     kind: str                # confirm | choice | param
     value: bool | int | str
+    pin: str | None = None   # 危险操作第二因子;仅 kind=confirm 且 decision.dangerous 时服务端强制
 
 
 class ControlReq(BaseModel):
@@ -55,7 +56,7 @@ def _empty_registry() -> Registry:
 
 
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
-               api_token: str, request_timeout: float = 30.0,
+               api_token: str, dangerous_pin: str = "", request_timeout: float = 30.0,
                max_concurrency: int = 8, store: ConversationStore | None = None,
                controller_factory=None, audit=None,
                cors_origins: list[str] | None = None) -> FastAPI:
@@ -90,6 +91,10 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         expected = f"Bearer {api_token}"
         if not authorization or not hmac.compare_digest(authorization, expected):
             raise HTTPException(status_code=401, detail="unauthorized")
+
+    def _requires_pin(outcome) -> bool:
+        # 危险操作 + 配了 PIN 的 needs_confirmation → 客户端须收集 PIN
+        return bool(dangerous_pin) and outcome.needs_confirmation and outcome.decision.dangerous
 
     def _fresh_controller(deadline: float | None = None):
         if controller_factory is not None:
@@ -166,7 +171,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 _audit_decision("turn", request_id, cid, req.utterance, outcome, pending_after)
                 dto = outcome_to_dto(outcome, conversation_id=cid, pending_id=pid,
                                      expires_at=st.pending_expires_at, request_id=request_id,
-                                     registry=ctrl.engine.registry)
+                                     registry=ctrl.engine.registry, requires_pin=_requires_pin(outcome))
                 if req.idempotency_key:
                     store.idempotent_put(st, req.idempotency_key, dto)
                 return dto
@@ -186,6 +191,18 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     raise HTTPException(status_code=409, detail="invalid or expired pending_id")
                 deadline = time.monotonic() + request_timeout
                 request_id = uuid.uuid4().hex
+                # 危险操作第二因子:对危险 confirm(approve)强制 PIN。bool(req.value) 与 controller
+                # approved=bool(value) 一致,堵 "1"/"yes" 绕过;按 decision.dangerous 非 stage,堵
+                # 危险且低置信/推断 绕过。pending 已被 take_pending 烧 → 错 PIN 须重发 control(防爆破)。
+                needs_pin = (bool(dangerous_pin) and expiring is not None
+                             and expiring.decision.dangerous
+                             and req.kind == "confirm" and bool(req.value))
+                if needs_pin and not (req.pin and hmac.compare_digest(req.pin, dangerous_pin)):
+                    store.clear_pending(st)
+                    st.session.cancel()      # take_pending 只清 id,这里清 session.pending 防 stale
+                    err = _error_outcome("PIN 校验失败")
+                    _audit_decision("reply", request_id, req.conversation_id, f"{req.kind}:pin", err, False)
+                    raise HTTPException(status_code=403, detail="PIN required or incorrect")
                 try:
                     ctrl = await asyncio.to_thread(_fresh_controller, deadline)
                     outcome = await asyncio.wait_for(
@@ -223,7 +240,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                                 f"{req.kind}:{req.value}", outcome, pending_after)
                 return outcome_to_dto(outcome, conversation_id=req.conversation_id, pending_id=pid,
                                       expires_at=st.pending_expires_at, request_id=request_id,
-                                      registry=ctrl.engine.registry)
+                                      registry=ctrl.engine.registry, requires_pin=_requires_pin(outcome))
 
     @app.post("/v1/control", dependencies=[Depends(require_auth)])
     async def control(req: ControlReq) -> dict:
@@ -270,7 +287,7 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 _audit_decision("control", request_id, cid, descriptor, outcome, pending_after)
                 dto = outcome_to_dto(outcome, conversation_id=cid, pending_id=pid,
                                      expires_at=st.pending_expires_at, request_id=request_id,
-                                     registry=ctrl.engine.registry)
+                                     registry=ctrl.engine.registry, requires_pin=_requires_pin(outcome))
                 if req.idempotency_key:
                     store.idempotent_put(st, req.idempotency_key, dto)
                 return dto

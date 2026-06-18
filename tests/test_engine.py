@@ -64,6 +64,34 @@ def test_confidence_gate_precedes_safety_gate(registry):
     assert d.stage == "confidence"
 
 
+def test_dangerous_decision_carries_dangerous_flag(registry):
+    eng = _engine(registry, _pr(device_id="lock.front_door", operation="unlock", confidence=0.95))
+    d = eng.decide("开大门锁")
+    assert d.stage == "safety"
+    assert d.dangerous is True
+
+
+def test_non_dangerous_decision_dangerous_false(registry):
+    # 普通允许 + 低置信非危险确认都不应标 dangerous
+    assert _engine(registry, _pr(device_id="light.living_room", operation="turn_on")).decide("开灯").dangerous is False
+    assert _engine(registry, _pr(device_id="light.living_room", operation="turn_on", confidence=0.4)).decide("把灯弄一下").dangerous is False
+
+
+def test_dangerous_low_confidence_confirm_still_dangerous(registry):
+    # 危险操作但低置信 -> stage=confidence(非 safety),仍须标 dangerous(否则 PIN 门按 stage 会漏)
+    eng = _engine(registry, _pr(device_id="lock.front_door", operation="unlock", confidence=0.4))
+    d = eng.decide("好像要开门?")
+    assert d.stage == "confidence"
+    assert d.dangerous is True
+
+
+def test_dangerous_inferred_confirm_still_dangerous(registry):
+    eng = _engine(registry, _pr(device_id="lock.front_door", operation="unlock", confidence=0.95, inferred=True))
+    d = eng.decide("我出门了")
+    assert d.stage == "inferred"
+    assert d.dangerous is True
+
+
 def test_feasibility_precedes_safety(registry):
     # 危险设备 + 不可行(未知参数) -> 先在可行性关被拒
     eng = _engine(registry, _pr(device_id="lock.front_door", operation="unlock", params={"speed": 9}, confidence=0.95))

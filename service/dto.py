@@ -37,8 +37,10 @@ def _choices(outcome, registry) -> list[dict] | None:
 
 
 def outcome_to_dto(outcome, *, conversation_id: str, pending_id: str | None,
-                   expires_at: float | None, request_id: str, registry) -> dict:
-    """Outcome → 稳定 JSON DTO。绝不裸返内部结构;choices 带可读 label。"""
+                   expires_at: float | None, request_id: str, registry,
+                   requires_pin: bool = False) -> dict:
+    """Outcome → 稳定 JSON DTO。绝不裸返内部结构;choices 带可读 label。
+    requires_pin:该 needs_confirmation 是危险操作且服务端配了 PIN → 客户端须收集 PIN。"""
     d = outcome.decision
     return {
         "status": _status(outcome),
@@ -52,4 +54,5 @@ def outcome_to_dto(outcome, *, conversation_id: str, pending_id: str | None,
         "params": dict(d.params),
         "result": {"executed": outcome.executed, "error": outcome.error},
         "request_id": request_id,
+        "requires_pin": requires_pin,
     }
