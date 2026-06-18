@@ -81,3 +81,67 @@ def _best_window(points: list[tuple[int, date]], max_spread: int
             best = (members, spread, typical)
     assert best is not None
     return best
+
+
+def _eligible_days(start: date, end: date, daytype: str, now_minute: int, typical: int) -> int:
+    """[start, end] 内该 daytype 的本地日期数;当天(==end)仅在已过 typical_minute 才计。"""
+    n = 0
+    d = start
+    one = timedelta(days=1)
+    while d <= end:
+        if _daytype(d) == daytype and (d < end or now_minute >= typical):
+            n += 1
+        d += one
+    return n
+
+
+def mine(events: list[ObservedEvent], now: float,
+         config: MineConfig = MineConfig(), *, tz: tzinfo) -> list[Habit]:
+    if not events:
+        return []
+
+    # 实体活跃窗起点:该 entity 的最早 ts(任何 source/state)
+    first_ts: dict[str, float] = {}
+    for e in events:
+        if e.entity_id not in first_ts or e.ts < first_ts[e.entity_id]:
+            first_ts[e.entity_id] = e.ts
+    active_start = {eid: _local(t, tz).date() for eid, t in first_ts.items()}
+
+    now_dt = _local(now, tz)
+    now_date = now_dt.date()
+    now_minute = _minute_of_day(now_dt)
+
+    groups: dict[tuple[str, str, str], list[tuple[int, date]]] = {}
+    for e in events:
+        if e.source not in config.sources:
+            continue
+        if e.entity_id.split(".")[0] not in config.domains:
+            continue
+        dt = _local(e.ts, tz)
+        key = (e.entity_id, e.new_state, _daytype(dt))
+        groups.setdefault(key, []).append((_minute_of_day(dt), dt.date()))
+
+    habits: list[Habit] = []
+    for (eid, state, daytype), points in groups.items():
+        members, spread, typical = _best_window(points, config.max_spread_min)
+        if not members:
+            continue
+        dates = {d for _, d in members}
+        support = len(dates)
+        weeks = len({_iso_week(d) for d in dates})
+        # 活跃窗结束用组内最晚事件日期(不延伸到 now),避免近期沉默天稀释 consistency
+        last_date = max(dates)
+        eligible_end = last_date if last_date < now_date else now_date
+        eligible = _eligible_days(active_start[eid], eligible_end, daytype, now_minute, typical)
+        if eligible == 0:
+            continue
+        consistency = support / eligible
+        if (support > config.min_support and weeks >= config.min_weeks
+                and consistency >= config.min_consistency):
+            habits.append(Habit(
+                entity_id=eid, domain=eid.split(".")[0], new_state=state, daytype=daytype,
+                typical_minute=typical, support=support, eligible_days=eligible,
+                weeks=weeks, consistency=consistency, spread_min=spread))
+
+    habits.sort(key=lambda h: (-h.consistency, -h.support, h.spread_min))
+    return habits

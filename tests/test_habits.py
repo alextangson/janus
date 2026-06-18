@@ -89,3 +89,90 @@ def test_best_window_tiebreak_prefers_smaller_spread():
     members, spread, _ = _best_window(pts, 20)
     assert spread == 1
     assert {m for m, _ in members} == {400, 401}
+
+
+from datetime import timedelta
+from gatekeeper.habits import mine
+
+
+def _wake_events(weeks, per_week_days=5, minute=425, source="user", entity="light.bed", state="on"):
+    """构造 weeks 周、每周 per_week_days 个工作日、~minute 的事件。起点 2024-01-01(周一)。"""
+    evs = []
+    start = datetime(2024, 1, 1, 0, 0, tzinfo=TZ)
+    for w in range(weeks):
+        for dow in range(per_week_days):  # 0..4 = 周一到周五
+            day = start + timedelta(days=w * 7 + dow)
+            jitter = (dow % 3) - 1  # -1/0/1 分钟,窗内
+            evs.append(ObservedEvent(
+                ts=datetime(day.year, day.month, day.day, minute // 60, minute % 60 + jitter, tzinfo=TZ).timestamp(),
+                entity_id=entity, new_state=state, source=source))
+    return evs
+
+
+def test_mines_weekday_wakeup_habit():
+    evs = _wake_events(weeks=3)  # 15 个工作日事件
+    now = datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp()
+    habits = mine(evs, now, tz=TZ)
+    assert len(habits) == 1
+    h = habits[0]
+    assert h.entity_id == "light.bed" and h.new_state == "on" and h.daytype == "weekday"
+    assert 423 <= h.typical_minute <= 427
+    assert h.support == 15 and h.weeks == 3
+    assert h.consistency >= 0.8
+
+
+def test_support_boundary_below_6():
+    sparse = _wake_events(weeks=3, per_week_days=1)  # 3 事件,3 周 → support 3 < 6
+    assert mine(sparse, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ) == []
+
+
+def test_weeks_boundary_2_vs_3():
+    two_weeks = _wake_events(weeks=2)  # 10 天但只跨 2 周
+    assert mine(two_weeks, datetime(2024, 1, 15, 9, 0, tzinfo=TZ).timestamp(), tz=TZ) == []
+
+
+def test_distinct_days_not_inflated_by_same_morning_toggles():
+    evs = _wake_events(weeks=3)
+    evs.append(ObservedEvent(ts=datetime(2024, 1, 1, 7, 6, tzinfo=TZ).timestamp(),
+                             entity_id="light.bed", new_state="on", source="user"))
+    habits = mine(evs, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
+    assert habits[0].support == 15
+
+
+def test_source_filter_excludes_automation_default_includes_physical_when_configured():
+    auto = [ObservedEvent(ts=e.ts, entity_id=e.entity_id, new_state=e.new_state, source="automation")
+            for e in _wake_events(weeks=3)]
+    assert mine(auto, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ) == []
+    phys = [ObservedEvent(ts=e.ts, entity_id=e.entity_id, new_state=e.new_state, source="physical")
+            for e in _wake_events(weeks=3)]
+    cfg = MineConfig(sources=frozenset({"user", "physical"}))
+    assert len(mine(phys, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), cfg, tz=TZ)) == 1
+
+
+def test_domain_filter_excludes_non_whitelisted():
+    evs = [ObservedEvent(ts=e.ts, entity_id="sensor.temp", new_state="on", source="user")
+           for e in _wake_events(weeks=3)]
+    assert mine(evs, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ) == []
+
+
+def test_weekday_and_weekend_do_not_merge():
+    wk = _wake_events(weeks=3)
+    we = []
+    start = datetime(2024, 1, 6, 0, 0, tzinfo=TZ)  # 周六
+    for w in range(3):
+        for dow in range(2):
+            day = start + timedelta(days=w * 7 + dow)
+            we.append(ObservedEvent(ts=datetime(day.year, day.month, day.day, 7, 5, tzinfo=TZ).timestamp(),
+                                    entity_id="light.bed", new_state="on", source="user"))
+    habits = mine(wk + we, datetime(2024, 1, 25, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
+    assert {h.daytype for h in habits} == {"weekday"}  # 周末仅 6 天 <6,不挖出
+
+
+def test_eligible_days_uses_entity_active_window():
+    evs = _wake_events(weeks=3)
+    habits = mine(evs, datetime(2024, 1, 22, 9, 0, tzinfo=TZ).timestamp(), tz=TZ)
+    assert habits[0].eligible_days <= 18  # 该实体活跃窗内工作日数,不是固定大窗
+
+
+def test_empty_input():
+    assert mine([], datetime(2024, 1, 1, 9, 0, tzinfo=TZ).timestamp(), tz=TZ) == []
