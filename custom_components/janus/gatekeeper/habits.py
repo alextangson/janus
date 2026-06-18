@@ -49,6 +49,7 @@ def _daytype(d: date | datetime) -> str:
 
 
 def _minute_of_day(dt: datetime) -> int:
+    # 分钟粒度(丢秒):窗口/spread 全按分钟,秒级精度对习惯无意义
     return dt.hour * 60 + dt.minute
 
 

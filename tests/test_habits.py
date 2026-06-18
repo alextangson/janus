@@ -28,6 +28,11 @@ def test_iso_week():
     assert _iso_week(_local(_ts(2024, 1, 15, 7, 0), TZ)) == (2024, 3)
 
 
+def test_iso_week_year_boundary():
+    # 2019-12-30(周一)属 ISO 2020-W01(含次年首个周四)——min_weeks 跨年计数靠它
+    assert _iso_week(_local(_ts(2019, 12, 30, 7, 0), TZ)) == (2020, 1)
+
+
 def test_config_and_dataclass_defaults():
     c = MineConfig()
     assert c.min_support == 6 and c.min_weeks == 3
