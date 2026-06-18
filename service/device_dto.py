@@ -18,6 +18,9 @@ def device_state(domain: str, state: str, attrs: dict) -> dict:
             out["current_temperature"] = attrs["current_temperature"]
         if attrs.get("temperature") is not None:
             out["target_temperature"] = attrs["temperature"]
+        for key in ("fan_mode", "swing_mode", "swing_horizontal_mode", "preset_mode"):
+            if attrs.get(key) is not None:
+                out[key] = attrs[key]
         return out
     if domain in ("cover", "valve"):
         # open 指"非 closed"(含 opening/closing/stopped 过渡态),与 queries.py 一致;

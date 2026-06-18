@@ -90,3 +90,21 @@ def test_state_valve_open_with_position():
 
 def test_state_lock_unlocked():
     assert device_state("lock", "unlocked", {}) == {"locked": False}
+
+
+def test_state_climate_exposes_fan_swing_preset():
+    out = device_state("climate", "cool", {
+        "fan_mode": "high", "swing_mode": "vertical",
+        "swing_horizontal_mode": "off", "preset_mode": "sleep",
+        "current_temperature": 26, "temperature": 24,
+    })
+    assert out["fan_mode"] == "high"
+    assert out["swing_mode"] == "vertical"
+    assert out["swing_horizontal_mode"] == "off"
+    assert out["preset_mode"] == "sleep"
+
+
+def test_state_climate_omits_absent_secondary_keys():
+    out = device_state("climate", "cool", {"temperature": 24})
+    assert "fan_mode" not in out
+    assert "preset_mode" not in out
