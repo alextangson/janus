@@ -47,6 +47,11 @@ class SettingsReq(BaseModel):
     tau: float = Field(ge=0.0, le=1.0)
 
 
+class SecurityPinReq(BaseModel):
+    current_pin: str = ""
+    new_pin: str
+
+
 def _error_outcome(msg: str) -> Outcome:
     return Outcome(decision=Decision(verdict="reject", stage="error", reason=msg),
                    executed=False, error=msg)
@@ -310,5 +315,28 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         if audit is None:
             return {"records": []}
         return {"records": audit.recent(limit=limit)}
+
+    @app.get("/v1/security/pin", dependencies=[Depends(require_auth)])
+    def get_security_pin() -> dict:
+        return {"configured": pin_store.is_configured()}
+
+    @app.put("/v1/security/pin", dependencies=[Depends(require_auth)])
+    def put_security_pin(req: SecurityPinReq) -> dict:
+        # 无持久路径(env-only/向后兼容)→ 管理禁用
+        if not pin_store.has_durable_path():
+            raise HTTPException(status_code=501, detail="PIN management not available")
+        # 无活跃 PIN → 不可从 app 凭空设(消除接管窗口);须先服务端 env 引导
+        if not pin_store.is_configured():
+            raise HTTPException(status_code=409, detail="no PIN to rotate; bootstrap JANUS_DANGEROUS_PIN first")
+        if pin_store.change_locked() > 0:
+            raise HTTPException(status_code=429, detail="too many attempts; locked")
+        if not pin_store.verify_for_change(req.current_pin):
+            err = _error_outcome("PIN 改密旧 PIN 校验失败")
+            _audit_decision("security", uuid.uuid4().hex, "", "pin_change", err, False)
+            raise HTTPException(status_code=403, detail="current PIN incorrect")
+        if len(req.new_pin) < 6:
+            raise HTTPException(status_code=400, detail="new PIN must be at least 6 characters")
+        pin_store.set(req.new_pin)
+        return {"configured": True}
 
     return app
