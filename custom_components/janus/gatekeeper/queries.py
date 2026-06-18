@@ -6,9 +6,18 @@ from __future__ import annotations
 
 from .registry import Registry
 
-_HVAC_ZH = {
+_ENUM_ZH = {
+    # hvac 模式
     "cool": "制冷", "heat": "制热", "fan_only": "送风", "auto": "自动",
     "dry": "除湿", "heat_cool": "自动", "off": "关",
+    # 风速
+    "low": "低", "medium": "中", "middle": "中", "high": "高",
+    "quiet": "静音", "silent": "静音", "strong": "强劲", "turbo": "强劲",
+    # 扫风
+    "on": "开", "vertical": "上下", "horizontal": "左右", "both": "全向",
+    # 预设
+    "none": "无", "eco": "节能", "away": "离家", "home": "在家",
+    "comfort": "舒适", "sleep": "睡眠", "boost": "强劲", "activity": "活动",
 }
 
 
@@ -35,7 +44,7 @@ def _render_one(device_id: str, by_id: dict, registry: Registry) -> str:
     if domain == "climate":
         if state == "off":
             return f"{name}:关"
-        parts = [_HVAC_ZH.get(state, state)]
+        parts = [_ENUM_ZH.get(state, state)]
         if attrs.get("current_temperature") is not None:
             parts.append(f"当前 {attrs['current_temperature']}°C")
         if attrs.get("temperature") is not None:

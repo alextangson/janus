@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 from .models import Decision
-from .queries import _HVAC_ZH
+from .queries import _ENUM_ZH
 from .registry import Registry
 
 _PARAM_ZH = {"temperature": "温度", "position": "位置", "percentage": "百分比",
-             "hvac_mode": "模式", "mode": "模式", "brightness_pct": "亮度"}
+             "hvac_mode": "模式", "mode": "模式", "brightness_pct": "亮度",
+             "fan_mode": "风速", "swing_mode": "上下扫风",
+             "swing_horizontal_mode": "左右扫风", "preset_mode": "预设"}
 
 
 def describe_action(decision: Decision, registry: Registry) -> str:
@@ -32,13 +34,19 @@ def describe_action(decision: Decision, registry: Registry) -> str:
         return f"把{name}调到 {t}°C" if t is not None else f"调节{name}温度"
     if op == "set_hvac_mode":
         m = params.get("hvac_mode") or params.get("mode")
-        return f"把{name}切到{_HVAC_ZH.get(m, m)}" if m is not None else f"切换{name}模式"
+        return f"把{name}切到{_ENUM_ZH.get(m, m)}" if m is not None else f"切换{name}模式"
+    if op == "set_fan_mode":
+        v = params.get("fan_mode")
+        return f"把{name}风速调到{_ENUM_ZH.get(v, v)}" if v is not None else f"调节{name}风速"
+    if op == "set_preset_mode":
+        v = params.get("preset_mode")
+        return f"把{name}切到{_ENUM_ZH.get(v, v)}模式" if v is not None else f"切换{name}预设"
     if op == "set_percentage":
         p = params.get("percentage", params.get("position"))
         return f"把{name}调到 {p}%" if p is not None else f"调节{name}"
 
     # 兜底:中文化能中文化的键值,绝不出现裸 op 名或 { } 字典
     if params:
-        kv = "、".join(f"{_PARAM_ZH.get(k, k)} {_HVAC_ZH.get(v, v)}" for k, v in params.items())
+        kv = "、".join(f"{_PARAM_ZH.get(k, k)} {_ENUM_ZH.get(v, v)}" for k, v in params.items())
         return f"调节{name}（{kv}）"
     return f"操作{name}"
