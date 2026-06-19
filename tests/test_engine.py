@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from gatekeeper.engine import Engine, _valid_intent
+from gatekeeper.engine import _MAX_RELATIVE_SECONDS, Engine, _valid_intent
 from gatekeeper.models import Device, OperationSpec, ParamSpec, ParseResult, ScheduleIntent
 from gatekeeper.registry import Registry
 
@@ -380,6 +380,30 @@ def test_valid_intent_pure_helper():
     assert not _valid_intent(ScheduleIntent(kind="recurring", hour=22, minute=0))  # 无 recurrence
     assert not _valid_intent(ScheduleIntent(kind="recurring", hour=8, minute=0,
                                             recurrence="daily", relative_seconds=60))
+    # 上界:~1 年内合法,越界(模型幻觉巨值)判废 —— 永不持久化垃圾远期排程
+    assert _valid_intent(ScheduleIntent(kind="once", relative_seconds=_MAX_RELATIVE_SECONDS))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=_MAX_RELATIVE_SECONDS + 1))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=10**12))
+
+
+def test_schedule_oversized_relative_seconds_rejects_not_persists():
+    # 模型幻觉巨大 relative_seconds(10**12 ≈ 3 万年)→ 必须在确定性校验里判废,
+    # 走 malformed 拒绝面("没听清定时时间"),绝不返回 allow、绝不携带 schedule 被持久化。
+    bad = ScheduleIntent(kind="once", relative_seconds=10**12)
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=bad))
+    d = eng.decide("过一会儿关空调")
+    assert d.verdict == "reject" and d.stage == "feasibility"
+    assert d.verdict != "allow"
+    assert d.schedule is None  # 未携带 → /v1/turn 不会持久化任何条目
+
+
+def test_schedule_large_in_bounds_relative_seconds_still_allows():
+    # 上界不能误伤正常用法:一小时后(3600s)远在 ~1 年内 → 仍 allow + 携带 schedule。
+    sched = ScheduleIntent(kind="once", relative_seconds=3600)
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=sched))
+    d = eng.decide("一小时后关空调")
+    assert (d.verdict, d.stage) == ("allow", "passed")
+    assert d.schedule == sched
 
 
 def test_schedule_valid_recurring_allows_and_carries_descriptor():

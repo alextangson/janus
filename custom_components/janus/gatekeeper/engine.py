@@ -12,11 +12,15 @@ class Parser(Protocol):
     def parse(self, instruction: str) -> ParseResult: ...
 
 
+_MAX_RELATIVE_SECONDS = 366 * 24 * 60 * 60   # ~1 year; LLM hallucinated huge offsets are rejected, not persisted
+
+
 def _valid_intent(intent: ScheduleIntent) -> bool:
     """排程描述符是否完整自洽。纯函数,不碰设备/模型。
     三类合法:相对一次性、绝对一次性、周期。任何字段冲突或越界都判废。"""
     if intent.kind == "once":
-        if (intent.relative_seconds is not None and intent.relative_seconds > 0
+        if (intent.relative_seconds is not None
+                and 0 < intent.relative_seconds <= _MAX_RELATIVE_SECONDS
                 and intent.hour is None and intent.minute is None
                 and intent.recurrence is None):
             return True
