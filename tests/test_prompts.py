@@ -1,4 +1,4 @@
-from gatekeeper.prompts import SYSTEM_PROMPT, build_user_prompt, current_season
+from gatekeeper.prompts import SYSTEM_PROMPT, build_user_prompt, current_season, parse_schema
 from gatekeeper.registry import Registry
 
 
@@ -32,3 +32,14 @@ def test_system_prompt_has_comfort_discipline():
     assert "set_temperature" in SYSTEM_PROMPT
     assert "hvac_mode" in SYSTEM_PROMPT
     assert "制热" in SYSTEM_PROMPT
+
+
+def test_parse_schema_exposes_schedule():
+    # schedule 字段加在 ParseResult 上即应自动流入 emit_parse 工具 schema(单一来源)
+    assert "schedule" in parse_schema()["properties"]
+
+
+def test_system_prompt_has_scheduling_rule():
+    # 定时/延时规则:防 prompt 漂移回退
+    assert "定时" in SYSTEM_PROMPT
+    assert "schedule" in SYSTEM_PROMPT
