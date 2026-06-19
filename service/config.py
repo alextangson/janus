@@ -26,3 +26,8 @@ AUDIT_DB = os.environ.get("JANUS_AUDIT_DB", "data/janus_audit.db")
 # 浏览器跨域:逗号分隔的允许源;默认 "*"(bearer API 安全)。收紧示例:
 # JANUS_CORS_ORIGINS="http://localhost:5180,http://192.168.3.89:5180"
 CORS_ORIGINS = [o.strip() for o in os.environ.get("JANUS_CORS_ORIGINS", "*").split(",") if o.strip()]
+
+# HAOS add-on(ingress)模式。默认全关 → compose/CLI 路径零影响;仅 add-on 的 run.sh 打开。
+STATIC_DIR = os.environ.get("JANUS_STATIC_DIR", "")  # 非空 → 服务端托管该目录的 janus-app(ingress dist)
+INGRESS = os.environ.get("JANUS_INGRESS", "") == "1"  # 开:index.html 注入 token + 只收 supervisor 源 IP
+SUPERVISOR_IP = os.environ.get("JANUS_SUPERVISOR_IP", "172.30.32.2")  # HA supervisor 内网固定 IP

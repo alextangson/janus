@@ -1,0 +1,2 @@
+# 构建产物:janus-app 的 ingress dist,由 build-addon-app.sh 生成,不入库。
+app/

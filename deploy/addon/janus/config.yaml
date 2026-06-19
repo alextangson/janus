@@ -1,0 +1,31 @@
+name: Janus
+version: "0.1.0"
+slug: janus
+description: LLM↔Home Assistant 安全闸:对话控家、危险操作确认、本地优先
+url: https://github.com/alextangson/janus
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+# app 经 ingress 嵌进 HA 界面(单一鉴权入口,免单独端口/登录)
+ingress: true
+ingress_port: 8088
+panel_icon: mdi:shield-account
+panel_title: Janus
+# 经 supervisor 代理访问 HA Core API(免用户建长期令牌)。注:这授予本 add-on 全 Core API
+# 权限(HA 无细粒度 Core scope),是 Janus 能控家的前提,详见 DOCS.md 威胁模型。
+homeassistant_api: true
+host_network: false
+options:
+  backend: local
+  local_model: qwen2.5:3b
+  tau: 0.7
+schema:
+  backend: "list(local|claude)"
+  local_base_url: "str?"
+  local_model: "str?"
+  tau: "float?"
+  anthropic_api_key: "password?"
+  dangerous_pin: "password?"

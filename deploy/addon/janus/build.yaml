@@ -1,0 +1,5 @@
+# Supervisor 按 arch 选 base image 注入 Dockerfile 的 BUILD_FROM。
+# HA base-python:含 python3 + pip + s6-overlay v3 + bashio。
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.20
+  amd64: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20
