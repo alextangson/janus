@@ -88,6 +88,19 @@ pip install -e . && cp .env.example .env   # add your HA URL/token + LLM key
 gatekeeper                                  # REPL against your real home
 ```
 
+**Full stack in one command (HA + local model + Janus service + app):**
+
+```bash
+cd deploy/compose && cp .env.example .env && ./up.sh
+```
+
+Brings up Home Assistant, Ollama (local model), the Janus headless service, and the
+Janus app together, local-first. Honest caveat: the first `docker compose up` cannot
+finish Home Assistant setup for you — you still create an HA account, add your device
+integrations, and mint a long-lived token (it's wrapped as a guided first-run, not
+hidden). See [deploy/compose/README.md](deploy/compose/README.md) for the two-phase
+walkthrough. This is the appliance's software core; a flashable image is a later step.
+
 ## Local model support
 
 Janus runs fully local with an OpenAI-compatible endpoint. Tested end-to-end with gemma4-8B via Ollama: the safety record holds (gates are code), at the cost of latency and occasional schema repair (built in). See [docs/phase1-validation.md](docs/phase1-validation.md) for the original validation notes.

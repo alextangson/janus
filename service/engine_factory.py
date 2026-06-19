@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import os
+
+from gatekeeper.config import LOCAL_BASE_URL, LOCAL_MODEL, MODEL
 from gatekeeper.context import build_context
 from gatekeeper.controller import Controller
 from gatekeeper.engine import Engine
 from gatekeeper.ha_client import HAClient
 from gatekeeper.ha_mapping import build_registry_snapshot
 from gatekeeper.registry import Registry
+
+
+def resolve_runtime(backend: str) -> tuple[str, str]:
+    """按后端选 (模型, 本地 base_url)。local → LOCAL_MODEL + 可覆盖 base_url(容器内指向
+    ollama 主机名);否则云端 MODEL。override 在此读 env(而非 gatekeeper.config 模块级常量),
+    避开 import-time 冻结:常量在 load_env() 之前已求值,真正的环境变量才在进程启动时可见。"""
+    base_url = os.environ.get("GATEKEEPER_LOCAL_BASE_URL", LOCAL_BASE_URL)
+    return (LOCAL_MODEL, base_url) if backend == "local" else (MODEL, base_url)
 
 
 def build_shared_clients(ha_url: str, ha_token: str, backend: str, model: str,

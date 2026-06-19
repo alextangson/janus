@@ -1,0 +1,86 @@
+name: janus-stack
+
+# 一条命令起整套栈:HA + Ollama(本地模型) + Janus 无头服务 + janus-app(web)。
+# 起法见 README.md / up.sh。诚实边界:HA 首次设置(建账号 + 加设备 + 建 token)躲不掉。
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: janus-homeassistant
+    volumes:
+      - ./data/ha:/config
+    ports:
+      - "8123:8123"
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    container_name: janus-ollama
+    volumes:
+      - ./data/ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # 一次性:拉模型 + 加载冒烟。janus 依赖它成功完成,确保首个请求不撞 model-not-found。
+  ollama-pull:
+    image: ollama/ollama
+    container_name: janus-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+      JANUS_LOCAL_MODEL: ${JANUS_LOCAL_MODEL:-qwen2.5:3b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[ollama-pull] 拉取 $${JANUS_LOCAL_MODEL} ..."
+        ollama pull "$${JANUS_LOCAL_MODEL}"
+        echo "[ollama-pull] 冒烟:加载模型 ..."
+        ollama run "$${JANUS_LOCAL_MODEL}" "ok" >/dev/null
+        echo "[ollama-pull] 模型就绪:$${JANUS_LOCAL_MODEL}"
+    restart: "no"
+
+  janus:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile.service
+    container_name: janus-service
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+      homeassistant:
+        condition: service_started
+    environment:
+      GATEKEEPER_HA_URL: http://homeassistant:8123
+      GATEKEEPER_HA_TOKEN: ${GATEKEEPER_HA_TOKEN:-}
+      GATEKEEPER_BACKEND: local
+      GATEKEEPER_LOCAL_BASE_URL: http://ollama:11434/v1
+      GATEKEEPER_LOCAL_MODEL: ${JANUS_LOCAL_MODEL:-qwen2.5:3b}
+      JANUS_HOST: 0.0.0.0
+      JANUS_PORT: "8088"
+      JANUS_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      JANUS_DANGEROUS_PIN: ${JANUS_DANGEROUS_PIN:-}
+    volumes:
+      - ./data/janus:/app/data
+    ports:
+      - "8088:8088"
+    restart: on-failure
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: janus-web
+    depends_on:
+      - janus
+    ports:
+      - "8080:80"
+    restart: unless-stopped
