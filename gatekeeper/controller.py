@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import Decision
+from .models import Decision, ScheduleIntent
 from .phrasing import _PARAM_ZH, describe_action
 from .queries import _ENUM_ZH
 
@@ -16,6 +16,7 @@ class Outcome:
     prompt: str | None = None
     choices: list[str] | None = None
     needs_param: bool = False
+    schedule: ScheduleIntent | None = None
 
 
 class Controller:
@@ -31,6 +32,9 @@ class Controller:
 
     def _dispatch(self, decision: Decision) -> Outcome:
         """决定 → Outcome 的唯一映射:allow 执行 / confirm 待确认 / ask 待补参 / 其余不动。"""
+        # 带调度意图的决定绝不立即执行,只把描述符浮到 Outcome 交服务层建任务(引擎保证仅在干净 allow 上设)。
+        if decision.schedule is not None:
+            return Outcome(decision=decision, executed=False, schedule=decision.schedule)
         if decision.verdict == "allow":
             return self._execute(decision)
         if decision.verdict == "confirm":

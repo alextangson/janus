@@ -7,6 +7,7 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from gatekeeper.controller import Outcome
 from gatekeeper.models import Decision
+from gatekeeper.phrasing import describe_action
 from gatekeeper.registry import Registry
 
 from .deadline import DeadlineExceeded, DeadlineHAClient
@@ -21,6 +23,7 @@ from .device_dto import device_state, device_to_dto
 from .dto import outcome_to_dto
 from .engine_factory import build_fresh_controller
 from .pin_store import PinStore
+from .schedule_build import entry_from_intent
 from .schedule_store import ScheduleEntry, ScheduleLimitExceeded, ScheduleStore
 from .schedule_time import compute_next_fire
 from .sessions import ConversationStore
@@ -79,6 +82,16 @@ def _error_outcome(msg: str) -> Outcome:
 
 def _empty_registry() -> Registry:
     return Registry({})
+
+
+def _fmt_fire(epoch: float, tz: str) -> str:
+    from datetime import datetime
+    return datetime.fromtimestamp(epoch, ZoneInfo(tz)).strftime("%m月%d日 %H:%M")
+
+
+def _schedule_confirm(decision, entry, *, registry, tz: str) -> str:
+    return (f"好的,已为你定时:{describe_action(decision, registry)},"
+            f"下次 {_fmt_fire(entry.next_fire_at, tz)} 触发")
 
 
 def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
@@ -209,6 +222,37 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                     _audit_lifecycle("superseded", request_id, cid,
                                      old_pending.decision.device_id, old_pending.decision.operation)
                 store.clear_pending(st)
+                # 携带 schedule 的 outcome:不走常规执行/确认,确定性建定时任务 + 返回 "scheduled" 确认。
+                if getattr(outcome, "schedule", None) is not None and schedule_store is not None:
+                    now = time.time()
+                    d = outcome.decision
+                    try:
+                        entry = entry_from_intent(d.device_id, d.operation, dict(d.params),
+                                                  outcome.schedule, tz=default_tz, now=now)
+                        schedule_store.add(entry)
+                    except ScheduleLimitExceeded:
+                        err = _error_outcome("定时数量已达上限")
+                        _audit_decision("turn", request_id, cid, req.utterance, err, False)
+                        dto = outcome_to_dto(err, conversation_id=cid, pending_id=None,
+                                             expires_at=None, request_id=request_id,
+                                             registry=ctrl.engine.registry)
+                    except ValueError:
+                        err = _error_outcome("没法安排这个定时时间")
+                        _audit_decision("turn", request_id, cid, req.utterance, err, False)
+                        dto = outcome_to_dto(err, conversation_id=cid, pending_id=None,
+                                             expires_at=None, request_id=request_id,
+                                             registry=ctrl.engine.registry)
+                    else:
+                        _audit_lifecycle("schedule_created", request_id, cid,
+                                         entry.device_id, entry.operation)
+                        dto = outcome_to_dto(outcome, conversation_id=cid, pending_id=None,
+                                             expires_at=None, request_id=request_id,
+                                             registry=ctrl.engine.registry)
+                        dto["message"] = _schedule_confirm(
+                            d, entry, registry=ctrl.engine.registry, tz=default_tz)
+                    if req.idempotency_key:
+                        store.idempotent_put(st, req.idempotency_key, dto)
+                    return dto
                 pending_after = outcome.needs_confirmation or outcome.needs_param
                 pid = store.issue_pending(st) if pending_after else None
                 _audit_decision("turn", request_id, cid, req.utterance, outcome, pending_after)

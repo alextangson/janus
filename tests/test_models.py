@@ -9,6 +9,7 @@ from gatekeeper.models import (
     ParamSpec,
     ParseResult,
     Decision,
+    ScheduleIntent,
 )
 
 
@@ -123,3 +124,25 @@ def test_decision_supports_ask_param_with_missing_param():
 def test_decision_missing_param_defaults_none():
     d = Decision(verdict="allow", stage="passed")
     assert d.missing_param is None
+
+
+def test_parse_result_accepts_recurring_schedule():
+    pr = ParseResult(recognized=True, device_id="climate.x", operation="turn_off",
+                     schedule={"kind": "recurring", "hour": 23, "minute": 0, "recurrence": "daily"})
+    assert pr.schedule.kind == "recurring"
+    assert pr.schedule.hour == 23
+
+
+def test_parse_result_schedule_defaults_none():
+    assert ParseResult(recognized=True).schedule is None
+
+
+def test_schedule_intent_relative_once():
+    s = ScheduleIntent(kind="once", relative_seconds=1200)
+    assert s.relative_seconds == 1200
+
+
+def test_decision_carries_schedule():
+    d = Decision(verdict="allow", stage="passed",
+                 schedule=ScheduleIntent(kind="recurring", hour=8, minute=0, recurrence="weekday"))
+    assert d.schedule.recurrence == "weekday"

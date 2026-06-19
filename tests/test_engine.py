@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from gatekeeper.engine import Engine
-from gatekeeper.models import Device, OperationSpec, ParamSpec, ParseResult
+from gatekeeper.engine import _MAX_RELATIVE_SECONDS, Engine, _valid_intent
+from gatekeeper.models import Device, OperationSpec, ParamSpec, ParseResult, ScheduleIntent
 from gatekeeper.registry import Registry
 
 from tests._helpers import FakeParser, RaisingParser, ValidatingParser
@@ -342,3 +342,172 @@ def test_decide_resolved_dangerous_confirms():
     eng = Engine(parser=object(), registry=reg, tau=0.7)
     d = eng.decide_resolved("lock.door", "unlock", {})
     assert d.verdict == "confirm" and d.stage == "safety"
+
+
+# ── 定时(NL scheduling)关卡 ──────────────────────────────────────────────
+# 设计铁律:定时只放行干净的 allow,malformed/危险/缺参/歧义一律 reject,
+# 绝不携带 schedule、绝不走多轮 ask/confirm —— 排程不能因解析噪声触发执行。
+
+
+def _sched_registry():
+    return Registry({
+        "climate.living": Device(name="客厅空调", type="climate", area="客厅",
+            operations={
+                "turn_off": OperationSpec(),
+                "set_temperature": OperationSpec(params={
+                    "temperature": ParamSpec(type="int", min=16, max=30, required=True)}),
+            }),
+        "climate.bedroom": Device(name="卧室空调", type="climate", area="卧室",
+            operations={"turn_off": OperationSpec()}),
+        "lock.door": Device(name="门锁", type="lock", area="门厅",
+            operations={"unlock": OperationSpec(dangerous=True)}),
+    })
+
+
+def _sched_engine(result, tau=0.7):
+    return Engine(FakeParser(result), _sched_registry(), tau=tau)
+
+
+def test_valid_intent_pure_helper():
+    # relative-once / absolute-once / recurring 都合法
+    assert _valid_intent(ScheduleIntent(kind="once", relative_seconds=1200))
+    assert _valid_intent(ScheduleIntent(kind="once", hour=8, minute=30))
+    assert _valid_intent(ScheduleIntent(kind="recurring", hour=22, minute=0, recurrence="daily"))
+    # malformed:越界 / 字段互斥冲突 / 缺要素
+    assert not _valid_intent(ScheduleIntent(kind="once", hour=99, minute=0))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=0))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=600, recurrence="daily"))
+    assert not _valid_intent(ScheduleIntent(kind="recurring", hour=22, minute=0))  # 无 recurrence
+    assert not _valid_intent(ScheduleIntent(kind="recurring", hour=8, minute=0,
+                                            recurrence="daily", relative_seconds=60))
+    # 上界:~1 年内合法,越界(模型幻觉巨值)判废 —— 永不持久化垃圾远期排程
+    assert _valid_intent(ScheduleIntent(kind="once", relative_seconds=_MAX_RELATIVE_SECONDS))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=_MAX_RELATIVE_SECONDS + 1))
+    assert not _valid_intent(ScheduleIntent(kind="once", relative_seconds=10**12))
+
+
+def test_schedule_oversized_relative_seconds_rejects_not_persists():
+    # 模型幻觉巨大 relative_seconds(10**12 ≈ 3 万年)→ 必须在确定性校验里判废,
+    # 走 malformed 拒绝面("没听清定时时间"),绝不返回 allow、绝不携带 schedule 被持久化。
+    bad = ScheduleIntent(kind="once", relative_seconds=10**12)
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=bad))
+    d = eng.decide("过一会儿关空调")
+    assert d.verdict == "reject" and d.stage == "feasibility"
+    assert d.verdict != "allow"
+    assert d.schedule is None  # 未携带 → /v1/turn 不会持久化任何条目
+
+
+def test_schedule_large_in_bounds_relative_seconds_still_allows():
+    # 上界不能误伤正常用法:一小时后(3600s)远在 ~1 年内 → 仍 allow + 携带 schedule。
+    sched = ScheduleIntent(kind="once", relative_seconds=3600)
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=sched))
+    d = eng.decide("一小时后关空调")
+    assert (d.verdict, d.stage) == ("allow", "passed")
+    assert d.schedule == sched
+
+
+def test_schedule_valid_recurring_allows_and_carries_descriptor():
+    sched = ScheduleIntent(kind="recurring", hour=22, minute=30, recurrence="daily")
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=sched))
+    d = eng.decide("每天晚上十点半关空调")
+    assert (d.verdict, d.stage) == ("allow", "passed")
+    assert d.device_id == "climate.living" and d.operation == "turn_off"
+    assert d.schedule is not None and d.schedule == sched
+
+
+def test_schedule_on_dangerous_op_rejects_without_descriptor():
+    sched = ScheduleIntent(kind="recurring", hour=8, minute=0, recurrence="daily")
+    eng = _sched_engine(_pr(device_id="lock.door", operation="unlock", schedule=sched))
+    d = eng.decide("每天早上八点开门锁")
+    assert d.verdict == "reject"
+    assert d.schedule is None
+    assert "敏感" in d.reason or "不支持" in d.reason
+
+
+def test_schedule_malformed_descriptor_rejects_not_executes():
+    bad = ScheduleIntent(kind="once", hour=99, minute=0)  # 越界小时
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=bad))
+    d = eng.decide("某个时刻关空调")
+    assert d.verdict == "reject" and d.stage == "feasibility"
+    assert d.schedule is None
+
+
+def test_schedule_malformed_relative_plus_recurrence_rejects():
+    bad = ScheduleIntent(kind="once", relative_seconds=600, recurrence="daily")  # 互斥冲突
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off", schedule=bad))
+    d = eng.decide("过会儿每天关空调")
+    assert d.verdict == "reject"
+    assert d.schedule is None
+
+
+def test_schedule_missing_required_param_rejects_not_asks():
+    # set_temperature 缺 temperature:普通路径会 ask,定时路径必须 reject(无多轮反问)
+    sched = ScheduleIntent(kind="recurring", hour=22, minute=0, recurrence="daily")
+    eng = _sched_engine(_pr(device_id="climate.living", operation="set_temperature",
+                            params={}, schedule=sched))
+    d = eng.decide("每天晚上调空调温度")
+    assert d.verdict == "reject"
+    assert d.verdict != "ask"
+    assert d.schedule is None
+
+
+def test_schedule_ambiguous_candidates_rejects_no_multiturn():
+    # 两个有效候选 + device_id None:普通路径会 confirm 选择,定时路径必须 reject
+    sched = ScheduleIntent(kind="recurring", hour=23, minute=0, recurrence="daily")
+    eng = _sched_engine(_pr(operation="turn_off",
+                            candidates=["climate.living", "climate.bedroom"], schedule=sched))
+    d = eng.decide("每天晚上关空调")
+    assert d.verdict == "reject"
+    assert d.verdict not in ("confirm", "ask")
+    assert "哪个设备" in d.reason
+    assert d.schedule is None
+
+
+def test_schedule_single_valid_candidate_resolves_and_allows():
+    # 候选过滤后只剩一个有效设备:消歧→放行(不反问)
+    sched = ScheduleIntent(kind="recurring", hour=7, minute=0, recurrence="weekday")
+    eng = _sched_engine(_pr(operation="turn_off",
+                            candidates=["climate.living", "lock.door"], schedule=sched))
+    d = eng.decide("工作日早上七点关空调")
+    assert (d.verdict, d.stage, d.device_id) == ("allow", "passed", "climate.living")
+    assert d.schedule == sched
+
+
+def test_schedule_no_device_no_candidates_rejects_at_parse():
+    sched = ScheduleIntent(kind="once", relative_seconds=600)
+    eng = _sched_engine(_pr(operation="turn_off", schedule=sched))
+    d = eng.decide("过会儿关一下")
+    assert (d.verdict, d.stage) == ("reject", "parse")
+    assert d.schedule is None
+
+
+def test_no_schedule_branch_skipped_regression():
+    # schedule=None 的普通指令完全走原路径(分支被跳过)
+    eng = _sched_engine(_pr(device_id="climate.living", operation="turn_off"))
+    d = eng.decide("关空调")
+    assert (d.verdict, d.stage) == ("allow", "passed")
+    assert d.schedule is None
+
+
+def test_schedule_reject_reason_never_leaks_entity_id():
+    # 鬼设备:check_feasibility 会回 "设备不存在:climate.ghost"(含原始 entity_id)。
+    # 定时拒绝面绝不透传该字符串 —— 与 423f911「停止泄漏 entity_id/op」一致。
+    sched = ScheduleIntent(kind="recurring", hour=22, minute=0, recurrence="daily")
+    eng = _sched_engine(_pr(device_id="climate.ghost", operation="turn_off", schedule=sched))
+    d = eng.decide("每天晚上关那个空调")
+    assert d.verdict == "reject"
+    assert d.schedule is None
+    assert "climate.ghost" not in d.reason
+    assert "ghost" not in d.reason
+
+
+def test_schedule_reject_reason_never_leaks_operation_name():
+    # 卧室空调不支持 set_temperature:check_feasibility 会回
+    # "设备「卧室空调」不支持操作:set_temperature"(含原始 op token)。定时拒绝面须用固定话术。
+    sched = ScheduleIntent(kind="recurring", hour=22, minute=0, recurrence="daily")
+    eng = _sched_engine(_pr(device_id="climate.bedroom", operation="set_temperature",
+                            params={"temperature": 24}, schedule=sched))
+    d = eng.decide("每天晚上把卧室空调调到几度")
+    assert d.verdict == "reject"
+    assert d.schedule is None
+    assert "set_temperature" not in d.reason

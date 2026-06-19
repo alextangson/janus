@@ -1,5 +1,5 @@
 from gatekeeper.controller import Controller, Outcome
-from gatekeeper.models import Decision, Device, OperationSpec, ParamSpec
+from gatekeeper.models import Decision, Device, OperationSpec, ParamSpec, ScheduleIntent
 from gatekeeper.registry import Registry
 
 
@@ -351,3 +351,33 @@ def test_param_prompt_renders_enum_options():
     out = Controller(eng, StubHA()).handle("换个模式")
     assert "哪种" in out.prompt
     assert "制冷" in out.prompt and "制热" in out.prompt
+
+
+# ---------------------------------------------------------------------------
+# Task 3: schedule intent — surfaced on Outcome, never executed
+# ---------------------------------------------------------------------------
+
+def test_allow_with_schedule_surfaces_descriptor_without_executing():
+    ha = StubHA()
+    sched = ScheduleIntent(kind="recurring", hour=23, minute=0, recurrence="daily")
+    d = _decision("allow", schedule=sched)
+    out = Controller(FakeEngine(d), ha).handle("每天23点关灯")
+    assert out.executed is False
+    assert out.schedule == sched
+    assert ha.calls == []  # 调度决定绝不调 HA 服务
+
+
+def test_allow_without_schedule_still_executes():
+    ha = StubHA()
+    out = Controller(FakeEngine(_decision("allow")), ha).handle("开灯")
+    assert out.executed is True
+    assert out.schedule is None
+    assert ha.calls == [("light", "turn_on", "light.living_room", {})]
+
+
+def test_reject_has_no_schedule_and_does_not_execute():
+    ha = StubHA()
+    out = Controller(FakeEngine(_decision("reject", stage="feasibility")), ha).handle("空调50度")
+    assert out.executed is False
+    assert out.schedule is None
+    assert ha.calls == []

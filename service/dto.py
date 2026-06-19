@@ -14,6 +14,8 @@ def _status(outcome) -> str:
         return "needs_param"
     if outcome.decision.verdict == "answer":
         return "answer"
+    if getattr(outcome, "schedule", None) is not None:
+        return "scheduled"
     return "rejected"
 
 
