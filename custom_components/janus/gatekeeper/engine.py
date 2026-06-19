@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
-from .models import Decision, ParseResult
+from .models import Decision, ParseResult, ScheduleIntent
 from .queries import answer_query
 from .registry import Registry
 from .validator import check_feasibility, missing_required_param
@@ -10,6 +10,27 @@ from .validator import check_feasibility, missing_required_param
 
 class Parser(Protocol):
     def parse(self, instruction: str) -> ParseResult: ...
+
+
+def _valid_intent(intent: ScheduleIntent) -> bool:
+    """排程描述符是否完整自洽。纯函数,不碰设备/模型。
+    三类合法:相对一次性、绝对一次性、周期。任何字段冲突或越界都判废。"""
+    if intent.kind == "once":
+        if (intent.relative_seconds is not None and intent.relative_seconds > 0
+                and intent.hour is None and intent.minute is None
+                and intent.recurrence is None):
+            return True
+        if (intent.hour is not None and 0 <= intent.hour <= 23
+                and intent.minute is not None and 0 <= intent.minute <= 59
+                and intent.relative_seconds is None and intent.recurrence is None):
+            return True
+        return False
+    if intent.kind == "recurring":
+        return (intent.hour is not None and 0 <= intent.hour <= 23
+                and intent.minute is not None and 0 <= intent.minute <= 59
+                and intent.recurrence in {"daily", "weekday", "weekend"}
+                and intent.relative_seconds is None)
+    return False
 
 
 class Engine:
@@ -57,6 +78,10 @@ class Engine:
                             reason=answer_query(parse.device_id, parse.candidates,
                                                 states, self.registry), **base)
 
+        if parse.schedule is not None:
+            # 定时自带消歧/校验/过闸:不走普通多轮歧义确认,只放行干净的 allow。
+            return self._decide_schedule(parse, base)
+
         if parse.candidates:
             valid = [c for c in parse.candidates
                      if (dev := self.registry.get(c)) and parse.operation in dev.operations]
@@ -93,6 +118,40 @@ class Engine:
                             reason="该操作敏感/不可逆,执行前需确认", **base)
 
         return Decision(verdict="allow", stage="passed", reason="正常安全操作", **base)
+
+    def _decide_schedule(self, parse: ParseResult, base: dict) -> Decision:
+        """排程关卡:校验描述符 → 消歧(单轮)→ 复用动作闸,只放行干净 allow。
+        malformed/危险/缺参/歧义全部 reject,绝不携带 schedule、绝不多轮反问。"""
+        if not _valid_intent(parse.schedule):
+            return Decision(verdict="reject", stage="feasibility",
+                            reason="没听清定时时间,说得具体些", **base)
+
+        if parse.device_id:
+            device_id = parse.device_id
+        elif parse.candidates:
+            valid = [c for c in parse.candidates
+                     if (dev := self.registry.get(c)) and parse.operation in dev.operations]
+            if len(valid) != 1:
+                return Decision(verdict="reject", stage="ambiguous",
+                                reason="定时请说清是哪个设备", **{**base, "device_id": None})
+            device_id = valid[0]
+            base = {**base, "device_id": device_id}
+        else:
+            return Decision(verdict="reject", stage="parse",
+                            reason="没识别出对应的设备或操作", **base)
+
+        d = self.decide_resolved(device_id, parse.operation, parse.params)
+        if d.verdict != "allow":
+            # 非危险拒绝用固定安全话术,绝不透传 d.reason —— 它可能含原始 entity_id/op。
+            reason = ("定时不支持开锁、撤防这类敏感操作" if d.dangerous
+                      else "定时需要明确、可执行的设备和参数(比如说清几度、哪个设备)")
+            return Decision(verdict="reject", stage=d.stage, reason=reason,
+                            device_id=device_id, operation=parse.operation,
+                            params=parse.params, confidence=1.0)
+
+        return Decision(verdict="allow", stage="passed", device_id=device_id,
+                        operation=parse.operation, params=parse.params,
+                        confidence=1.0, reason="已安排定时", schedule=parse.schedule)
 
     def decide_resolved(self, device_id: str, operation: str | None,
                         params: dict | None = None) -> Decision:

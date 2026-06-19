@@ -28,6 +28,14 @@ class Device(BaseModel):
     operations: dict[str, OperationSpec] = Field(default_factory=dict)
 
 
+class ScheduleIntent(BaseModel):
+    kind: Literal["once", "recurring"]
+    hour: int | None = None             # 0..23 (absolute wall-clock)
+    minute: int | None = None           # 0..59 (absolute)
+    relative_seconds: int | None = None # > 0 (relative once, e.g. 20分钟后 = 1200)
+    recurrence: Literal["daily", "weekday", "weekend"] | None = None
+
+
 class ParseResult(BaseModel):
     recognized: bool
     device_id: str | None = None
@@ -37,6 +45,7 @@ class ParseResult(BaseModel):
     inferred: bool = False
     query: bool = False
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
+    schedule: ScheduleIntent | None = None
     notes: str = ""
 
 
@@ -54,4 +63,5 @@ class Decision(BaseModel):
     candidates: list[str] = Field(default_factory=list)
     missing_param: str | None = None
     confidence: float = 0.0
+    schedule: ScheduleIntent | None = None
     reason: str = ""
