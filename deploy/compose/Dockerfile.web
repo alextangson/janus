@@ -1,0 +1,4 @@
+# janus-app 静态托管。dist 由 build-app.sh 从私有仓 ../janus-app 构建后拷进 web/dist。
+FROM caddy:2-alpine
+COPY web/dist /usr/share/caddy
+COPY Caddyfile /etc/caddy/Caddyfile

@@ -11,12 +11,10 @@ def main() -> None:
     load_env()  # 必须先加载 .env:gatekeeper.config 的 env 派生常量在 import 时已冻结,
     # 故 HA url/token/backend/tau 在此直接从 os.environ 读,避免读到冻结的空值。
 
-    from gatekeeper.config import LOCAL_BASE_URL, MODEL
-
     from . import config as svc
     from .app import create_app
     from .audit import AuditSink
-    from .engine_factory import build_fresh_controller, build_shared_clients
+    from .engine_factory import build_fresh_controller, build_shared_clients, resolve_runtime
     from .pin_store import PinStore
     from .schedule_store import ScheduleStore
     from .scheduler import Scheduler
@@ -36,7 +34,10 @@ def main() -> None:
     if not svc.API_TOKEN:
         raise SystemExit("缺少 JANUS_API_TOKEN(拒绝无认证启动)")
 
-    ha_client, llm_client = build_shared_clients(ha_url, ha_token, backend, MODEL, LOCAL_BASE_URL)
+    # 本地后端用 LOCAL_MODEL(发给 Ollama 的模型名)+ 可覆盖 base_url(容器内指向 ollama 主机名);
+    # 云端仍用 MODEL。三处(shared clients / scheduler 工厂 / create_app)统一用解析结果。
+    model, local_base_url = resolve_runtime(backend)
+    ha_client, llm_client = build_shared_clients(ha_url, ha_token, backend, model, local_base_url)
     store = ConversationStore(pending_ttl=svc.PENDING_TTL_S, idempotency_ttl=svc.IDEMPOTENCY_TTL_S,
                               max_sessions=svc.MAX_SESSIONS)
     audit = AuditSink(svc.AUDIT_DB)
@@ -47,10 +48,10 @@ def main() -> None:
     tz = resolve_tz(ha_client, default=env_default_tz)
     scheduler = Scheduler(
         schedule_store,
-        controller_factory=lambda: build_fresh_controller(ha_client, llm_client, backend, MODEL, tau),
+        controller_factory=lambda: build_fresh_controller(ha_client, llm_client, backend, model, tau),
         tz_name=tz, audit=audit, lock_path=lock_path)
 
-    app = create_app(ha_client=ha_client, llm_client=llm_client, backend=backend, model=MODEL,
+    app = create_app(ha_client=ha_client, llm_client=llm_client, backend=backend, model=model,
                      tau=tau, api_token=svc.API_TOKEN, pin_store=pin_store,
                      request_timeout=svc.REQUEST_TIMEOUT_S,
                      max_concurrency=svc.MAX_CONCURRENCY, store=store, audit=audit,
