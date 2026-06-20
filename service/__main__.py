@@ -56,7 +56,9 @@ def main() -> None:
                      request_timeout=svc.REQUEST_TIMEOUT_S,
                      max_concurrency=svc.MAX_CONCURRENCY, store=store, audit=audit,
                      cors_origins=svc.CORS_ORIGINS,
-                     schedule_store=schedule_store, default_tz=tz, scheduler=scheduler)
+                     schedule_store=schedule_store, default_tz=tz, scheduler=scheduler,
+                     static_dir=svc.STATIC_DIR or None, ingress=svc.INGRESS,
+                     supervisor_ip=svc.SUPERVISOR_IP)
     uvicorn.run(app, host=svc.HOST, port=svc.PORT)
 
 

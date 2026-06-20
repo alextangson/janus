@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from gatekeeper.controller import Outcome
@@ -101,7 +104,9 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                controller_factory=None, audit=None,
                cors_origins: list[str] | None = None,
                schedule_store: ScheduleStore | None = None,
-               default_tz: str = "Asia/Shanghai", scheduler=None) -> FastAPI:
+               default_tz: str = "Asia/Shanghai", scheduler=None,
+               static_dir: str | None = None, ingress: bool = False,
+               supervisor_ip: str = "172.30.32.2") -> FastAPI:
     if not api_token:
         raise RuntimeError("JANUS_API_TOKEN 未设置:拒绝在无认证下启动")
     # 向后兼容:仅给 dangerous_pin(块 A)→ 构 env-only 内存 store(无持久路径,管理端点禁用)
@@ -127,6 +132,15 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
         allow_headers=["Authorization", "Content-Type"],
     )
+    # HAOS ingress 模式:防御纵深——只接受来自 supervisor 内网 IP 的请求,挡同内网其他 add-on
+    # 直连 :8088 偷 token/调 /v1。bearer 鉴权仍是主防线(见 require_auth),此为额外隔离。
+    if ingress:
+        @app.middleware("http")
+        async def _ingress_source_guard(request: Request, call_next):
+            client = request.client.host if request.client else None
+            if client != supervisor_ip:
+                return JSONResponse({"detail": "forbidden"}, status_code=403)
+            return await call_next(request)
     store = store or ConversationStore()
     tau_box = {"value": tau}
     sem = asyncio.Semaphore(max_concurrency)
@@ -485,5 +499,39 @@ def create_app(*, ha_client, llm_client, backend: str, model: str, tau: float,
                 days=entry.days, tz_name=entry.tz, after=time.time())
         sched.update(entry)
         return entry.to_dict()
+
+    # 静态托管 janus-app(ingress dist)。**在所有 /v1 + /health 路由注册之后**挂载,
+    # 故 API 路由优先(catch-all 不吞 API)。仅 JANUS_STATIC_DIR 非空时启用 → compose/CLI 零影响。
+    if static_dir:
+        static_root = Path(static_dir).resolve()
+        index_path = static_root / "index.html"
+
+        def _render_index(request: Request) -> HTMLResponse:
+            html = index_path.read_text(encoding="utf-8")
+            if ingress:
+                # ingress 模式:把真 token + supervisor 给的真 ingress 根注入页面,
+                # app 据此免粘贴直连(token 只走 HA 已鉴权的 ingress + 源 IP 闸双重保护通道)。
+                base = request.headers.get("X-Ingress-Path", "")
+                boot = {"baseUrl": base, "token": api_token}
+                inject = f"<script>window.__JANUS__={json.dumps(boot)};</script>"
+                html = html.replace("</head>", inject + "</head>", 1)
+            return HTMLResponse(html)
+
+        @app.get("/", include_in_schema=False)
+        async def _spa_index(request: Request) -> HTMLResponse:
+            return _render_index(request)
+
+        @app.get("/{path:path}", include_in_schema=False)
+        async def _spa_static(path: str, request: Request):
+            # API 路径不做 SPA 回退:未命中的 /v1、/health 一律真 404。
+            if path == "health" or path == "v1" or path.startswith("v1/"):
+                return Response(status_code=404)
+            candidate = (static_root / path).resolve()
+            if candidate.is_relative_to(static_root) and candidate.is_file():
+                return FileResponse(candidate)
+            # 资产(带扩展名)缺失 → 真 404(便于排错);其余 → SPA 回退 index.html。
+            if "." in Path(path).name:
+                return Response(status_code=404)
+            return _render_index(request)
 
     return app

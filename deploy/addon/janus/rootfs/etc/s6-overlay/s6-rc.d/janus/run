@@ -1,0 +1,40 @@
+#!/command/with-contenv bashio
+# Janus 服务入口(s6-overlay v3 longrun)。读 add-on 选项 + supervisor token → 起服务。
+set -e
+
+# ── LLM 后端 ──────────────────────────────────────────────────────────
+export GATEKEEPER_BACKEND="$(bashio::config 'backend')"
+bashio::config.has_value 'local_model'    && export GATEKEEPER_LOCAL_MODEL="$(bashio::config 'local_model')"
+bashio::config.has_value 'local_base_url' && export GATEKEEPER_LOCAL_BASE_URL="$(bashio::config 'local_base_url')"
+bashio::config.has_value 'tau'            && export GATEKEEPER_TAU="$(bashio::config 'tau')"
+bashio::config.has_value 'anthropic_api_key' && export ANTHROPIC_API_KEY="$(bashio::config 'anthropic_api_key')"
+bashio::config.has_value 'dangerous_pin'     && export JANUS_DANGEROUS_PIN="$(bashio::config 'dangerous_pin')"
+
+# ── HA 连接走 supervisor(免用户建长期令牌)────────────────────────────
+export GATEKEEPER_HA_URL="http://supervisor/core"
+export GATEKEEPER_HA_TOKEN="${SUPERVISOR_TOKEN}"
+
+# ── ingress + 静态托管 ───────────────────────────────────────────────
+export JANUS_HOST="0.0.0.0"
+export JANUS_PORT="8088"
+export JANUS_INGRESS="1"
+export JANUS_STATIC_DIR="/opt/janus-app"
+
+# ── 持久化到 add-on 的 /data ─────────────────────────────────────────
+export JANUS_AUDIT_DB="/data/janus_audit.db"
+export JANUS_SCHEDULE_PATH="/data/schedules.json"
+export JANUS_SCHEDULE_LOCK="/data/scheduler.lock"
+export JANUS_SECURITY_FILE="/data/janus_security.json"
+
+# ── 随机内部 API token(持久、chmod 600、不回显日志)──────────────────
+# ingress 模式由服务端注入给 app,但 /v1 仍用它做 bearer 鉴权(ingress 不旁路鉴权)。
+TOKEN_FILE="/data/janus_api_token"
+if [ ! -f "${TOKEN_FILE}" ]; then
+  python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "${TOKEN_FILE}"
+  chmod 600 "${TOKEN_FILE}"
+fi
+export JANUS_API_TOKEN="$(cat "${TOKEN_FILE}")"
+
+bashio::log.info "Janus 启动:backend=${GATEKEEPER_BACKEND} ingress=on static=/opt/janus-app"
+cd /opt/janus
+exec python3 -m service
