@@ -9,6 +9,8 @@ homeassistant.* 与 .gatekeeper.*(部署期注入)只存在于 HA 运行时,必�
 """
 from __future__ import annotations
 
+from collections import deque
+
 from .const import DEFAULT_TAU, DOMAIN
 
 PLATFORMS = ["conversation"]
@@ -28,13 +30,26 @@ async def async_setup_entry(hass, entry) -> bool:
     data["tau"] = entry.options.get("tau", DEFAULT_TAU)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
 
+    from homeassistant.core import Context
+
     from .observer import ObservationLog, start_observer
 
     obs_log = ObservationLog(hass, Store(hass, 1, f"janus_observations_{entry.entry_id}"))
     await obs_log.async_load()
     data["observations"] = obs_log
+
+    # Janus 自己执行动作时带可识别 context → 观察者标 'janus'、剔出习惯挖掘(别从自己身上学)。
+    # 有界集合(loop 线程读、executor 线程写,GIL 下逐项原子;偶发竞态只是个别误标,非崩)。
+    janus_ctx_ids: deque = deque(maxlen=256)
+
+    def _janus_context() -> Context:
+        ctx = Context()
+        janus_ctx_ids.append(ctx.id)
+        return ctx
+
+    data["janus_ctx_factory"] = _janus_context
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
-    entry.async_on_unload(start_observer(hass, obs_log))
+    entry.async_on_unload(start_observer(hass, obs_log, janus_ctx_ids))
     await _async_setup_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -145,4 +160,5 @@ def build_controller(hass, shapes: dict, data: dict):
         from .gatekeeper.parser import ClaudeParser
         parser = ClaudeParser(reg, MODEL, client=Anthropic(api_key=data["api_key"]), context_provider=context_provider)
     return Controller(Engine(parser, reg, data.get("tau", DEFAULT_TAU),
-                             state_provider=lambda: shapes["states"]), HassServiceCaller(hass))
+                             state_provider=lambda: shapes["states"]),
+                      HassServiceCaller(hass, context_factory=data.get("janus_ctx_factory")))

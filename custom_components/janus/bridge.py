@@ -56,16 +56,20 @@ class HassServiceCaller:
     绝不能在事件循环线程里调用——.result() 会死锁。
     """
 
-    def __init__(self, hass, timeout: float = 10.0):
+    def __init__(self, hass, timeout: float = 10.0, context_factory=None):
         self._hass = hass
         self._timeout = timeout
+        # 可选:返回一个 HA Context 并登记其 id 的工厂(在 __init__.py 建,本模块不 import HA)。
+        # 让 Janus 自己执行的动作带可识别 context → 观察者标 'janus'、剔出习惯挖掘。
+        self._context_factory = context_factory
 
     def call_service(self, domain: str, service: str, entity_id: str,
                      params: dict | None = None):
+        context = self._context_factory() if self._context_factory else None
         future = asyncio.run_coroutine_threadsafe(
             self._hass.services.async_call(
                 domain, service, {"entity_id": entity_id, **(params or {})},
-                blocking=True),
+                blocking=True, context=context),
             self._hass.loop,
         )
         return future.result(self._timeout)

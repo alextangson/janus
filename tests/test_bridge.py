@@ -91,17 +91,30 @@ def test_converters_feed_existing_pure_logic_end_to_end():
     assert reg.get("switch.cam_wm") is None            # 从属开关被策展(camera 主域兄弟)
 
 
-def test_hass_service_caller_round_trip():
+def _fake_caller_with(context_factory=None):
     calls = []
 
     class FakeServices:
-        async def async_call(self, domain, service, data, blocking=True):
-            calls.append((domain, service, data, blocking))
+        async def async_call(self, domain, service, data, blocking=True, context=None):
+            calls.append((domain, service, data, blocking, context))
 
     loop = asyncio.new_event_loop()
     threading.Thread(target=loop.run_forever, daemon=True).start()
     hass = SimpleNamespace(services=FakeServices(), loop=loop)
-    HassServiceCaller(hass).call_service("light", "turn_on", "light.a", {"brightness_pct": 50})
+    caller = HassServiceCaller(hass, context_factory=context_factory)
+    caller.call_service("light", "turn_on", "light.a", {"brightness_pct": 50})
     loop.call_soon_threadsafe(loop.stop)
+    return calls
+
+
+def test_hass_service_caller_round_trip():
+    calls = _fake_caller_with()
     assert calls == [("light", "turn_on",
-                      {"entity_id": "light.a", "brightness_pct": 50}, True)]
+                      {"entity_id": "light.a", "brightness_pct": 50}, True, None)]
+
+
+def test_hass_service_caller_passes_janus_context():
+    # context_factory 的返回值原样透传给 async_call(让观察者据此把动作标 'janus')
+    sentinel = object()
+    calls = _fake_caller_with(context_factory=lambda: sentinel)
+    assert calls[0][4] is sentinel
