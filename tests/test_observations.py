@@ -1,4 +1,24 @@
-from gatekeeper.observations import Observation, build_observation, classify_source
+from gatekeeper.observations import (Observation, build_observation, classify_source,
+                                     is_observed_domain, resolve_source)
+
+
+def test_is_observed_domain():
+    # 动作域 + 触发域(presence)都观察;无关域早退
+    for eid in ("light.a", "cover.c", "lock.l", "climate.ac",
+                "person.alex", "device_tracker.alex_phone"):
+        assert is_observed_domain(eid), eid
+    for eid in ("switch.x", "sensor.temp", "binary_sensor.motion"):
+        assert not is_observed_domain(eid), eid
+
+
+def test_resolve_source_marks_janus_own_actions():
+    janus = {"ctx-janus-1"}
+    assert resolve_source(None, None, "ctx-janus-1", janus) == "janus"     # 自己动作的 ctx
+    assert resolve_source(None, "ctx-janus-1", "child", janus) == "janus"  # 子事件 parent 命中
+    assert resolve_source("alex", None, "ctx-x", janus) == "user"          # 别人(有 user_id)
+    assert resolve_source(None, None, "ctx-x", janus) == "physical"        # 真物理/米家
+    assert resolve_source(None, None, "ctx-janus-1", None) == "physical"   # 无 janus 集合则不特判
+    assert resolve_source(None, None, "ctx-janus-1", set()) == "physical"  # 空集合同理
 
 
 def test_build_observation_derives_domain():
