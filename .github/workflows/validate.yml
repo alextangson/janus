@@ -18,9 +18,6 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
-          # brands 是"进默认 HACS 商店搜索"的要求(需 home-assistant/brands 仓库的 logo PR);
-          # 自定义仓库安装(加 URL)不需要它。默认商店上架时移除本行并提交 brands PR。
-          ignore: brands
 
   hassfest:
     name: hassfest
