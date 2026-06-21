@@ -77,7 +77,7 @@ Reproduce: `python -m harness.run_benchmark --backend claude` (full details in [
 
 **In Home Assistant (conversation agent):**
 
-1. Copy `custom_components/janus/` into your HA `config/custom_components/` (the repo's `harness/deploy_janus.sh` shows the vendoring step; HACS listing is on the roadmap), restart HA;
+1. Install via [HACS](https://hacs.xyz/) → ⋮ → **Custom repositories** → add `https://github.com/alextangson/janus` as category **Integration** → install **Janus** → restart HA. (No HACS? Copy `custom_components/janus/` into your HA `config/custom_components/` and restart.)
 2. Settings → Devices & Services → Add Integration → **Janus** → answer one question: where does your LLM live (Anthropic API key, or a local OpenAI-compatible endpoint like Ollama);
 3. Pick Janus as the conversation agent in Assist. Talk to your home from the HA app.
 

@@ -1,12 +1,13 @@
 {
   "domain": "janus",
   "name": "Janus",
-  "codeowners": [],
+  "codeowners": ["@alextangson"],
   "config_flow": true,
   "dependencies": ["conversation"],
   "documentation": "https://github.com/alextangson/janus",
   "integration_type": "service",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/alextangson/janus/issues",
   "requirements": ["anthropic>=0.39", "openai>=1.40", "pydantic>=2.5"],
   "version": "0.1.0"
 }
