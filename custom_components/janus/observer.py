@@ -81,3 +81,34 @@ def start_observer(hass, log, janus_ctx_ids=None):
     return hass.bus.async_listen(
         EVENT_STATE_CHANGED,
         functools.partial(_on_state_change, hass, log, janus_ctx_ids))
+
+
+def _mine_and_log(records, tz_name):
+    """executor 线程:在观察记录上跑挖掘器,把候选写进日志供人工 inspect。
+    **只读、不投递、不执行**(codex #14:真数据前别把未验证关联产品化)。"""
+    try:
+        import time
+        from zoneinfo import ZoneInfo
+
+        from .gatekeeper.habit_mining import run_miners
+        res = run_miners(records, time.time(), tz=ZoneInfo(tz_name))
+        _LOGGER.info("janus 夜间挖掘:%d 触发候选 / %d 时段候选(共 %d 条观察)",
+                     len(res.trigger_habits), len(res.time_habits), len(records))
+        for h in res.trigger_habits[:5]:
+            _LOGGER.info("  [触发] %s → %s=%s | 命中 %d/%d 周%d 一致性%.2f lift%.1f%s",
+                         h.trigger, h.entity_id, h.new_state, h.support, h.triggers,
+                         h.weeks, h.consistency, h.lift, " 疑时段混淆" if h.time_confounded else "")
+    except Exception:  # noqa: BLE001 — 挖掘失败绝不连累 HA
+        _LOGGER.exception("janus 夜间挖掘失败")
+
+
+def start_nightly_mining(hass, log, tz_name, *, hour: int = 3):
+    """每日 hour:00 静默跑挖掘器,候选写日志(只读)。回调在 loop 线程 → 重活 offload 到
+    executor,绝不阻塞事件循环。返回 unsub,交给 entry.async_on_unload。"""
+    from homeassistant.helpers.event import async_track_time_change
+
+    @callback
+    def _fire(_now):
+        hass.async_add_executor_job(_mine_and_log, log.snapshot(), tz_name)
+
+    return async_track_time_change(hass, _fire, hour=hour, minute=0, second=0)
