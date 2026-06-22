@@ -32,7 +32,7 @@ async def async_setup_entry(hass, entry) -> bool:
 
     from homeassistant.core import Context
 
-    from .observer import ObservationLog, start_observer
+    from .observer import ObservationLog, start_nightly_mining, start_observer
 
     obs_log = ObservationLog(hass, Store(hass, 1, f"janus_observations_{entry.entry_id}"))
     await obs_log.async_load()
@@ -50,6 +50,8 @@ async def async_setup_entry(hass, entry) -> bool:
     data["janus_ctx_factory"] = _janus_context
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = data
     entry.async_on_unload(start_observer(hass, obs_log, janus_ctx_ids))
+    # 每日静默跑挖掘器,候选写日志供 inspect(只读,不投递/不执行;真投递等数据+人工查)。
+    entry.async_on_unload(start_nightly_mining(hass, obs_log, hass.config.time_zone))
     await _async_setup_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
